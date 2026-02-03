@@ -7,7 +7,7 @@ import { MTLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/MTL
 const OBJ_FILE = "model.obj";
 const MTL_FILE = "model.mtl";     // "" if you don't have one
 const TEXTURE_PATH = "";          // e.g. "textures/" if your .mtl uses bare filenames
-const PLACE_ON_GROUND = true;     // true = sit on y=0, false = true center
+const PLACE_ON_GROUND = false;     // true = sit on y=0, false = true center
 // ---------------------------
 
 const container = document.getElementById("app");
