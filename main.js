@@ -1,9 +1,9 @@
-import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import * as THREE from "https://esm.sh/three@0.160.0";
+import { GLTFLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
 
 const container = document.getElementById("app");
-if (!container) throw new Error('Missing #app element');
+if (!container) throw new Error("Missing #app element");
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf2f2f2);
