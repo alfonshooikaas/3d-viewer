@@ -1,12 +1,20 @@
+// main.js — FBX version (GitHub Pages friendly, no build tools)
+//
+// Files expected in repo root:
+//   - index.html (with <div id="app"></div> and <script type="module" src="./main.js"></script>)
+//   - model.fbx
+//
+// Optional (if you exported textures separately):
+//   - textures/...
+
 import * as THREE from "https://esm.sh/three@0.160.0";
-import { GLTFLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/FBXLoader.js";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
 
 const container = document.getElementById("app");
 if (!container) throw new Error("Missing #app element");
 
-// UI overlay
+// Small on-screen status (useful when things go wrong)
 const hud = document.createElement("div");
 hud.style.cssText =
   "position:fixed;left:12px;top:12px;z-index:9999;" +
@@ -28,25 +36,25 @@ camera.position.set(0, 1, 3);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.setSize(1, 1, false);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
 
-const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
-scene.add(hemi);
-
+// Lighting
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
 const dir = new THREE.DirectionalLight(0xffffff, 1.2);
 dir.position.set(3, 6, 2);
 scene.add(dir);
 
+// Controls
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.enablePan = false;
 
+// Resize
 function resize() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   if (!w || !h) return;
+
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -54,27 +62,22 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-function computeSceneBounds(object3d) {
+// Fit camera to object (robust for huge/tiny models)
+function frameObject(object3d) {
   const box = new THREE.Box3().setFromObject(object3d);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  return { box, size, center };
-}
 
-function frameObject(object3d) {
-  const { size, center } = computeSceneBounds(object3d);
   const maxDim = Math.max(size.x, size.y, size.z);
-
-  // If bounds are empty (no geometry), tell us.
   if (!isFinite(maxDim) || maxDim === 0) {
-    hud.textContent = "Loaded, but bounds are empty.\nNo visible geometry found.";
+    hud.textContent =
+      "Loaded, but bounds are empty.\nNo visible geometry found in FBX.";
     return;
   }
 
-  // Move model so center is at origin
+  // Recenter model at origin
   object3d.position.sub(center);
 
-  // Fit camera to object
   const fov = THREE.MathUtils.degToRad(camera.fov);
   const distance = (maxDim / 2) / Math.tan(fov / 2);
   const padded = distance * 1.6;
@@ -90,53 +93,49 @@ function frameObject(object3d) {
   hud.textContent =
     `Loaded ✓\n` +
     `Approx size: ${maxDim.toFixed(4)}\n` +
-    `Tip: drag to rotate, scroll to zoom\n` +
-    `Press "M" to toggle debug material`;
+    `Drag to rotate, scroll to zoom`;
+  setTimeout(() => hud.remove(), 2000);
 }
 
-function countMeshes(object3d) {
-  let meshes = 0;
-  object3d.traverse((o) => {
-    if (o.isMesh) meshes += 1;
-  });
-  return meshes;
-}
-
-// Optional: force a visible material to rule out “transparent/black” materials
-let debugMaterialOn = false;
-const originalMaterials = new WeakMap();
-function setDebugMaterial(root, on) {
-  root.traverse((o) => {
-    if (!o.isMesh) return;
-    if (on) {
-      if (!originalMaterials.has(o)) originalMaterials.set(o, o.material);
-      o.material = new THREE.MeshNormalMaterial();
-    } else {
-      const mat = originalMaterials.get(o);
-      if (mat) o.material = mat;
-    }
-  });
-}
-
-let modelRoot = null;
-
-window.addEventListener("keydown", (e) => {
-  if (e.key.toLowerCase() === "m" && modelRoot) {
-    debugMaterialOn = !debugMaterialOn;
-    setDebugMaterial(modelRoot, debugMaterialOn);
-    hud.textContent += `\nDebug material: ${debugMaterialOn ? "ON" : "OFF"}`;
-  }
-});
-
-hud.textContent = "Loading model.glb…";
+// FBX loading
+hud.textContent = "Loading model.fbx…";
 
 const loader = new FBXLoader();
+loader.load(
+  "model.fbx",
+  (model) => {
+    // FBX often comes in as a Group with nested Meshes
+    scene.add(model);
 
-loader.load("model.fbx", (model) => {
-  scene.add(model);
-  frameObject(model);
-});
+    // Optional: improve look if materials are too dark
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = false;
+      o.receiveShadow = false;
 
+      // Many FBX materials are MeshPhongMaterial; keep them, but ensure they respond to light.
+      if (o.material) {
+        o.material.needsUpdate = true;
+      }
+    });
+
+    frameObject(model);
+  },
+  (ev) => {
+    if (ev.total) {
+      const pct = Math.round((ev.loaded / ev.total) * 100);
+      hud.textContent = `Loading model.fbx… ${pct}%`;
+    } else {
+      hud.textContent = "Loading model.fbx…";
+    }
+  },
+  (err) => {
+    console.error("FBX load error:", err);
+    hud.textContent = "Failed to load model.fbx (see console)";
+  }
+);
+
+// Render loop
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
