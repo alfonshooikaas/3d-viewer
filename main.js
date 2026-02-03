@@ -1,13 +1,3 @@
-// main.js — OBJ viewer (GitHub Pages friendly, no build tools)
-// Centers the model in the viewport by targeting the model's bounding-box center
-// (does NOT move the model; instead it frames camera + OrbitControls target)
-//
-// Expected files (adjust constants below if your names differ):
-//   - index.html  (contains <div id="app"></div> and <script type="module" src="./main.js"></script>)
-//   - model.obj
-//   - model.mtl   (optional; if missing, OBJ loads with fallback material)
-//   - textures/…  (optional)
-
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
 import { OBJLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/OBJLoader.js";
@@ -15,15 +5,15 @@ import { MTLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/MTL
 
 // ---------- CONFIG ----------
 const OBJ_FILE = "model.obj";
-const MTL_FILE = "model.mtl";     // set to "" if you don't have one
+const MTL_FILE = "";              // e.g. "model.mtl" (leave "" if none)
 const TEXTURE_PATH = "";          // e.g. "textures/" if your .mtl uses bare filenames
-const PLACE_ON_GROUND = false;    // false = true center in viewport; true = aim slightly above floor
+const PLACE_ON_GROUND = false;    // true => rests on floor; false => true center around origin
 // ---------------------------
 
 const container = document.getElementById("app");
 if (!container) throw new Error("Missing #app element");
 
-// HUD overlay
+// Small HUD
 const hud = document.createElement("div");
 hud.style.cssText =
   "position:fixed;left:12px;top:12px;z-index:9999;" +
@@ -36,10 +26,11 @@ document.body.appendChild(hud);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf2f2f2);
 
-// Optional helpers (comment out when you're happy)
+// Optional helpers (keep while debugging)
 scene.add(new THREE.GridHelper(10, 10));
 scene.add(new THREE.AxesHelper(2));
 
+// Camera/renderer
 const camera = new THREE.PerspectiveCamera(45, 1, 0.001, 1e9);
 camera.position.set(0, 1, 3);
 
@@ -48,9 +39,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
 
-// Lighting
+// Lights
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-
 const dir = new THREE.DirectionalLight(0xffffff, 1.2);
 dir.position.set(3, 6, 2);
 scene.add(dir);
@@ -65,7 +55,6 @@ function resize() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   if (!w || !h) return;
-
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -73,49 +62,43 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// Ensure meshes have a visible material when no MTL exists / fails
+// Fallback material if no MTL
 function applyFallbackMaterial(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
-
     if (!o.material) {
       o.material = new THREE.MeshStandardMaterial({ color: 0xcccccc });
     }
-
-    // OBJ/MTL materials can be dark; make sure they respond well
     o.material.needsUpdate = true;
   });
 }
 
-// Framing that guarantees the model is centered in the viewport:
-// - DO NOT move the model (OBJ pivots can be weird)
-// - Compute bounding-box center in world space
-// - Set OrbitControls target to that center
-// - Place camera relative to that target
-function frameObject(object3d, { placeOnGround = false } = {}) {
+// --- We wrap the loaded OBJ in a pivot group and move the pivot ---
+const pivot = new THREE.Group();
+scene.add(pivot);
+
+// Debug: a small marker at origin (where we expect “center” to be after pivoting)
+const originMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.06, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0xff0000 })
+);
+scene.add(originMarker);
+
+let loadedObject = null;
+
+// Robust fit-to-view that assumes model is centered around origin (after pivot)
+function fitToView(object3d) {
   object3d.updateMatrixWorld(true);
 
   const box = new THREE.Box3().setFromObject(object3d);
   const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-
   const maxDim = Math.max(size.x, size.y, size.z);
+
   if (!isFinite(maxDim) || maxDim === 0) {
     hud.textContent = "Loaded, but bounds are empty.\nNo visible geometry found.";
     return;
   }
 
-  // Choose a target:
-  // - true center: target = bbox center
-  // - "on ground": aim slightly above the floor so the object feels centered
-  const target = center.clone();
-  if (placeOnGround) {
-    const floorY = box.min.y;
-    const height = size.y || maxDim;
-    target.y = floorY + height * 0.45;
-  }
-
-  // Fit camera distance to object size
   const fov = THREE.MathUtils.degToRad(camera.fov);
   let distance = (maxDim / 2) / Math.tan(fov / 2);
   distance *= 1.6;
@@ -124,37 +107,73 @@ function frameObject(object3d, { placeOnGround = false } = {}) {
   camera.far = Math.max(maxDim * 2000, 10);
   camera.updateProjectionMatrix();
 
-  // Place camera "in front" of the target and slightly above
-  camera.position.set(target.x, target.y + maxDim * 0.25, target.z + distance);
-  camera.lookAt(target);
-
-  controls.target.copy(target);
+  // Since we recenter to origin, target is origin
+  controls.target.set(0, PLACE_ON_GROUND ? maxDim * 0.15 : 0, 0);
   controls.update();
+
+  camera.position.set(0, maxDim * 0.25, distance);
+  camera.lookAt(controls.target);
 
   hud.textContent =
     `Loaded ✓\n` +
     `Approx size: ${maxDim.toFixed(4)}\n` +
-    `Target: (${target.x.toFixed(3)}, ${target.y.toFixed(3)}, ${target.z.toFixed(3)})\n` +
-    `Center mode: ${placeOnGround ? "ground-ish" : "true center"}\n` +
-    `Drag to rotate, scroll to zoom`;
+    `Press F to refit`;
   setTimeout(() => hud.remove(), 2500);
 }
 
-// Load OBJ (with or without materials)
-function loadObjWith(objLoader) {
+// Recenters geometry by moving the pivot group (NOT the model itself)
+function recenterIntoPivot(obj) {
+  obj.updateMatrixWorld(true);
+
+  // World-space bounds of the object as loaded
+  const box = new THREE.Box3().setFromObject(obj);
+  const center = box.getCenter(new THREE.Vector3());
+
+  // Move pivot so that obj’s center ends up at origin
+  // We do this by shifting pivot position by -center
+  pivot.position.set(-center.x, -center.y, -center.z);
+
+  // If you want "on ground", lift it so the bottom touches y=0
+  if (PLACE_ON_GROUND) {
+    obj.updateMatrixWorld(true);
+    const box2 = new THREE.Box3().setFromObject(obj);
+    const minY = box2.min.y;
+    pivot.position.y -= minY; // lift so bottom sits at y=0
+  }
+
+  // After pivoting, fit camera
+  fitToView(obj);
+}
+
+// Hotkey: refit camera
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() === "f" && loadedObject) {
+    fitToView(loadedObject);
+  }
+});
+
+// Load OBJ (optionally with MTL)
+function loadObj(objLoader) {
+  hud.textContent = `Loading ${OBJ_FILE}…`;
+
   objLoader.load(
     OBJ_FILE,
     (obj) => {
-      scene.add(obj);
-      obj.updateMatrixWorld(true);
+      // Clear previous
+      pivot.clear();
+
+      loadedObject = obj;
+      pivot.add(obj);
 
       applyFallbackMaterial(obj);
-      frameObject(obj, { placeOnGround: PLACE_ON_GROUND });
+
+      // This is the key centering step
+      recenterIntoPivot(obj);
     },
     undefined,
     (err) => {
       console.error("OBJ load error:", err);
-      hud.textContent = "Failed to load model.obj (see console)";
+      hud.textContent = `Failed to load ${OBJ_FILE} (see console)`;
     }
   );
 }
@@ -162,7 +181,7 @@ function loadObjWith(objLoader) {
 hud.textContent = "Loading…";
 
 if (MTL_FILE) {
-  hud.textContent = "Loading materials (model.mtl)…";
+  hud.textContent = `Loading ${MTL_FILE}…`;
 
   const mtlLoader = new MTLLoader();
   if (TEXTURE_PATH) mtlLoader.setPath(TEXTURE_PATH);
@@ -175,22 +194,16 @@ if (MTL_FILE) {
       const objLoader = new OBJLoader();
       objLoader.setMaterials(materials);
 
-      hud.textContent = "Loading geometry (model.obj)…";
-      loadObjWith(objLoader);
+      loadObj(objLoader);
     },
     undefined,
     (mtlErr) => {
-      console.warn("MTL load failed (continuing without materials):", mtlErr);
-
-      hud.textContent = "Loading geometry (model.obj) without materials…";
-      const objLoader = new OBJLoader();
-      loadObjWith(objLoader);
+      console.warn("MTL failed (continuing without materials):", mtlErr);
+      loadObj(new OBJLoader());
     }
   );
 } else {
-  hud.textContent = "Loading geometry (model.obj)…";
-  const objLoader = new OBJLoader();
-  loadObjWith(objLoader);
+  loadObj(new OBJLoader());
 }
 
 // Render loop
