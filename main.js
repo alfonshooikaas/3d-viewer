@@ -130,38 +130,12 @@ window.addEventListener("keydown", (e) => {
 
 hud.textContent = "Loading model.glb…";
 
-const loader = new GLTFLoader();
-loader.load(
-  "model.glb",
-  (gltf) => {
-    modelRoot = gltf.scene;
-    scene.add(modelRoot);
+const loader = new FBXLoader();
 
-    const meshes = countMeshes(modelRoot);
-    hud.textContent = `Loaded scene. Meshes: ${meshes}\nFraming…`;
-
-    // If there are zero meshes, the GLB may only contain empties or is hidden.
-    if (meshes === 0) {
-      hud.textContent =
-        `Loaded, but found 0 meshes.\n` +
-        `This GLB may contain only empties/cameras/lights.\n` +
-        `Try exporting "Selected Objects" incl. meshes.`;
-      return;
-    }
-
-    frameObject(modelRoot);
-  },
-  (ev) => {
-    if (ev.total) {
-      const pct = Math.round((ev.loaded / ev.total) * 100);
-      hud.textContent = `Loading model.glb… ${pct}%`;
-    }
-  },
-  (err) => {
-    console.error(err);
-    hud.textContent = "Failed to load model.glb (see console)";
-  }
-);
+loader.load("model.fbx", (model) => {
+  scene.add(model);
+  frameObject(model);
+});
 
 function animate() {
   requestAnimationFrame(animate);
