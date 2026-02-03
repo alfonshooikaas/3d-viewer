@@ -1,8 +1,9 @@
-import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const container = document.getElementById("app");
+if (!container) throw new Error('Missing #app element');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf2f2f2);
@@ -15,6 +16,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 container.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+
 const dir = new THREE.DirectionalLight(0xffffff, 1);
 dir.position.set(3, 5, 2);
 scene.add(dir);
@@ -23,11 +25,8 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
 function resize() {
-  // IMPORTANT: read size from the container that has a real height (100vh)
   const w = container.clientWidth;
   const h = container.clientHeight;
-
-  // Guard against 0×0
   if (w === 0 || h === 0) return;
 
   renderer.setSize(w, h, false);
@@ -38,23 +37,27 @@ window.addEventListener("resize", resize);
 resize();
 
 const loader = new GLTFLoader();
-loader.load("./model.glb", (gltf) => {
-  const model = gltf.scene;
-  scene.add(model);
+loader.load(
+  "model.glb",
+  (gltf) => {
+    const model = gltf.scene;
+    scene.add(model);
 
-  // Center model + frame camera
-  const box = new THREE.Box3().setFromObject(model);
-  const center = box.getCenter(new THREE.Vector3());
-  const size = box.getSize(new THREE.Vector3()).length();
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3()).length();
 
-  model.position.sub(center);
+    model.position.sub(center);
 
-  camera.position.set(0, size * 0.2, size * 0.6);
-  controls.target.set(0, 0, 0);
-  controls.update();
+    camera.position.set(0, size * 0.2, size * 0.6);
+    controls.target.set(0, 0, 0);
+    controls.update();
 
-  resize(); // in case layout changed
-}, undefined, console.error);
+    resize();
+  },
+  undefined,
+  (err) => console.error("GLB load error:", err)
+);
 
 function animate() {
   requestAnimationFrame(animate);
