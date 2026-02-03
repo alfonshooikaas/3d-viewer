@@ -28,8 +28,8 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf2f2f2);
 
 // Helpers (remove later if you want)
-scene.add(new THREE.GridHelper(10, 10));
-scene.add(new THREE.AxesHelper(2));
+// scene.add(new THREE.GridHelper(10, 10));
+// scene.add(new THREE.AxesHelper(2));
 
 // Camera
 const camera = new THREE.PerspectiveCamera(45, 1, 0.001, 1e9);
