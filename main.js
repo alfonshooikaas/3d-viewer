@@ -25,7 +25,7 @@ document.body.appendChild(hud);
 
 // Scene
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf2f2f2);
+scene.background = new THREE.Color('#FFE8E8');
 
 // Helpers (remove later if you want)
 // scene.add(new THREE.GridHelper(10, 10));
