@@ -5,9 +5,13 @@ import { MTLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/MTL
 
 // ---------- CONFIG ----------
 const OBJ_FILE = "model.obj";
-const MTL_FILE = "model.mtl";     // "" if you don't have one
-const TEXTURE_PATH = "";          // e.g. "textures/" if your .mtl uses bare filenames
+const MTL_FILE = "model.mtl";      // "" if you don't have one
+const TEXTURE_PATH = "";           // e.g. "textures/" if your .mtl uses bare filenames
 const PLACE_ON_GROUND = false;     // true = sit on y=0, false = true center
+
+// Blender "World" color:
+const WORLD_COLOR = "#FFE8E8";     // Blender world color #FFE8E8FF -> alpha ignored
+const ENV_INTENSITY = 1.0;         // tweak 0.8–1.2
 // ---------------------------
 
 const container = document.getElementById("app");
@@ -25,9 +29,9 @@ document.body.appendChild(hud);
 
 // Scene
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#FFE8E8');
+scene.background = new THREE.Color(WORLD_COLOR);
 
-// Helpers (remove later if you want)
+// Helpers (optional)
 // scene.add(new THREE.GridHelper(10, 10));
 // scene.add(new THREE.AxesHelper(2));
 
@@ -39,13 +43,25 @@ camera.position.set(0, 1, 3);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// Blender-ish “world-only” feel (less contrasty than ACES)
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+// Use physically-correct light falloff/intensity handling
+renderer.physicallyCorrectLights = true;
+
 container.appendChild(renderer.domElement);
 
-// Lights
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-const dir = new THREE.DirectionalLight(0xffffff, 1.2);
-dir.position.set(3, 6, 2);
-scene.add(dir);
+// --- World-only environment light (no lamps) ---
+// This approximates Blender's "World" lighting (top/bottom same tint).
+scene.add(
+  new THREE.HemisphereLight(
+    new THREE.Color(WORLD_COLOR),
+    new THREE.Color(WORLD_COLOR),
+    ENV_INTENSITY
+  )
+);
 
 // Controls
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -58,18 +74,33 @@ function resize() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   if (!w || !h) return;
-  renderer.setSize(w, h, false);
+
+  // Keep CSS size + buffer size aligned (prevents weird “corner” renders)
+  renderer.setSize(w, h, true);
+
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 window.addEventListener("resize", resize);
 resize();
 
-// Fallback material
+// Fallback material (world-only shading wants rough + non-metal)
 function applyFallbackMaterial(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
-    if (!o.material) o.material = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+
+    if (!o.material) {
+      o.material = new THREE.MeshStandardMaterial({
+        color: 0xcccccc,   // change if you want a specific material color
+        roughness: 1.0,
+        metalness: 0.0,
+      });
+    }
+
+    // Ensure consistent response under env-only light
+    if (o.material && "roughness" in o.material) o.material.roughness = 1.0;
+    if (o.material && "metalness" in o.material) o.material.metalness = 0.0;
+
     o.material.needsUpdate = true;
   });
 }
@@ -81,12 +112,9 @@ scene.add(pivot);
 let loadedObj = null;
 
 function centerAndFrame(obj) {
-  // Make sure aspect/viewport is correct right now
   resize();
-
   obj.updateMatrixWorld(true);
 
-  // 1) Compute bounds in world
   const box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
@@ -97,30 +125,23 @@ function centerAndFrame(obj) {
     return;
   }
 
-  // 2) Reset pivot and move it so that center becomes origin
   pivot.position.set(-center.x, -center.y, -center.z);
   pivot.updateMatrixWorld(true);
 
-  // 3) Optional: place on ground (y=0)
   if (PLACE_ON_GROUND) {
     const box2 = new THREE.Box3().setFromObject(obj);
     const minY = box2.min.y;
-    pivot.position.y -= minY; // lift so bottom touches y=0
+    pivot.position.y -= minY;
     pivot.updateMatrixWorld(true);
   }
 
-  // 4) Recompute size after pivot move (important)
   const box3 = new THREE.Box3().setFromObject(obj);
   const size3 = box3.getSize(new THREE.Vector3());
   const maxDim3 = Math.max(size3.x, size3.y, size3.z);
 
-  // 5) Define target (center of screen)
   const target = new THREE.Vector3(0, 0, 0);
-  if (PLACE_ON_GROUND) {
-    target.y = (size3.y || maxDim3) * 0.45; // feel centered while standing on ground
-  }
+  if (PLACE_ON_GROUND) target.y = (size3.y || maxDim3) * 0.45;
 
-  // 6) Compute camera distance to fit object
   const fov = THREE.MathUtils.degToRad(camera.fov);
   let distance = (maxDim3 / 2) / Math.tan(fov / 2);
   distance *= 1.6;
@@ -129,7 +150,6 @@ function centerAndFrame(obj) {
   camera.far = Math.max(maxDim3 * 2000, 10);
   camera.updateProjectionMatrix();
 
-  // 7) Place camera and aim correctly
   camera.position.set(target.x, target.y + maxDim3 * 0.25, target.z + distance);
   controls.target.copy(target);
   camera.lookAt(target);
@@ -138,6 +158,7 @@ function centerAndFrame(obj) {
   hud.textContent =
     `Loaded ✓\n` +
     `Approx size: ${maxDim3.toFixed(4)}\n` +
+    `World-only light (Hemisphere)\n` +
     `Press F to refit, R to reset`;
   setTimeout(() => hud.remove(), 2500);
 }
@@ -149,7 +170,7 @@ window.addEventListener("keydown", (e) => {
   if (k === "r") controls.reset();
 });
 
-// Load OBJ (with or without MTL)
+// Load OBJ
 function loadObj(objLoader) {
   hud.textContent = `Loading ${OBJ_FILE}…`;
 
@@ -161,8 +182,6 @@ function loadObj(objLoader) {
       pivot.add(obj);
 
       applyFallbackMaterial(obj);
-
-      // Let the browser do one layout/render tick so matrices stabilize
       requestAnimationFrame(() => centerAndFrame(obj));
     },
     undefined,
