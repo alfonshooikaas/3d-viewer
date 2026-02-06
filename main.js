@@ -23,13 +23,11 @@ const TEXTURE_PATH = "";      // e.g. "textures/"
 
 // ---------- LIVE PARAMS (UI edits these) ----------
 export const params = {
-  // renderer / scene
   background: "#FFE8E8",
-  toneMapping: "ACES",          // "ACES" | "NONE"
+  toneMapping: "ACES",
   exposure: 1.45,
   physicallyCorrectLights: false,
 
-  // lighting
   ambientColor: "#FFE8E8",
   ambientIntensity: 1.75,
 
@@ -43,16 +41,13 @@ export const params = {
   keyPosY: 2.0,
   keyPosZ: 1.4,
 
-  // materials
   overrideMaterials: false,
   overrideRoughness: 0.9,
   overrideMetalness: 0.0,
   meshColors: {},
 
-  // framing
   placeOnGround: false,
 };
-// ----------------------------------------------
 
 // ---------- DOM ----------
 const container = document.getElementById("app");
@@ -116,10 +111,8 @@ const hotspotSystem = createHotspotSystem({
 
 // ---------- Apply look ----------
 function applyLook() {
-  // background
   scene.background = new THREE.Color(params.background);
 
-  // renderer
   renderer.physicallyCorrectLights = !!params.physicallyCorrectLights;
   renderer.toneMapping =
     params.toneMapping === "ACES"
@@ -127,7 +120,6 @@ function applyLook() {
       : THREE.NoToneMapping;
   renderer.toneMappingExposure = params.exposure;
 
-  // lights
   ambient.color = new THREE.Color(params.ambientColor);
   ambient.intensity = params.ambientIntensity;
 
@@ -139,7 +131,6 @@ function applyLook() {
   key.intensity = params.keyIntensity;
   key.position.set(params.keyPosX, params.keyPosY, params.keyPosZ);
 
-  // materials
   if (loadedObj) applyMaterials(loadedObj);
 }
 
@@ -193,16 +184,10 @@ function centerAndFrame(obj) {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  if (!isFinite(maxDim) || maxDim === 0) return;
+  if (!isFinite(maxDim) || maxDim === 0) return 1;
 
   pivot.position.set(-center.x, -center.y, -center.z);
   pivot.updateMatrixWorld(true);
-
-  if (params.placeOnGround) {
-    const box2 = new THREE.Box3().setFromObject(obj);
-    pivot.position.y -= box2.min.y;
-    pivot.updateMatrixWorld(true);
-  }
 
   const fov = THREE.MathUtils.degToRad(camera.fov);
   let distance = (maxDim / 2) / Math.tan(fov / 2);
@@ -215,6 +200,8 @@ function centerAndFrame(obj) {
   camera.position.set(0, maxDim * 0.22, distance);
   controls.target.set(0, 0, 0);
   controls.update();
+
+  return maxDim;
 }
 
 // ---------- Load OBJ ----------
@@ -227,27 +214,42 @@ function loadObj(objLoader) {
       pivot.add(obj);
 
       applyLook();
-      requestAnimationFrame(() => centerAndFrame(obj));
 
-      // ----- Hotspots -----
-      hotspotSystem.clearHotspots();
+      requestAnimationFrame(() => {
+        const modelSize = centerAndFrame(obj);
 
-      // Example hotspot positions (model-local coordinates)
-      hotspotSystem.addHotspot(
-        new THREE.Vector3(0.1, 0.15, 0.0),
-        { label: "Top feature" }
-      );
+        // ----- HOTSPOTS -----
+        hotspotSystem.clearHotspots();
 
-      hotspotSystem.addHotspot(
-        new THREE.Vector3(-0.08, 0.05, 0.12),
-        { label: "Side detail" }
-      );
+        // DEBUG hotspot (always visible)
+        const debug = hotspotSystem.addHotspot(
+          new THREE.Vector3(0, 0, 0),
+          { label: "DEBUG" }
+        );
+        debug.position.z += modelSize * 0.3;
 
-      // ----- UI -----
-      createUI({
-        params,
-        applyLook,
-        refit: () => loadedObj && centerAndFrame(loadedObj),
+        // Example real hotspots (replace coords with your own)
+        hotspotSystem.addHotspot(
+          new THREE.Vector3(0.1, 0.15, 0.0),
+          { label: "Top feature" }
+        );
+
+        hotspotSystem.addHotspot(
+          new THREE.Vector3(-0.08, 0.05, 0.12),
+          { label: "Side detail" }
+        );
+
+        // Auto-scale hotspots to model size
+        hotspotSystem.hotspots.forEach(h => {
+          h.scale.setScalar(modelSize * 0.04);
+        });
+
+        // ----- UI -----
+        createUI({
+          params,
+          applyLook,
+          refit: () => loadedObj && centerAndFrame(loadedObj),
+        });
       });
     },
     undefined,
@@ -279,22 +281,15 @@ if (MTL_FILE) {
 renderer.domElement.addEventListener("pointerdown", (e) => {
   hotspotSystem.onPointerDown(e, (hotspot) => {
     console.log("Hotspot clicked:", hotspot.userData);
-
-    // simple feedback
-    hotspot.material.color.set("#00BCD4");
+    hotspot.material.emissive?.set("#00BCD4");
   });
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
   hotspotSystem.onPointerMove(e, (hotspot) => {
-    hotspotSystem.hotspots.forEach(h => h.scale.setScalar(1));
-    if (hotspot) hotspot.scale.setScalar(1.5);
+    hotspotSystem.hotspots.forEach(h => h.scale.setScalar(h.scale.x));
+    if (hotspot) hotspot.scale.setScalar(hotspot.scale.x * 1.3);
   });
-});
-
-// ---------- Hotkey ----------
-window.addEventListener("keydown", (e) => {
-  if (e.key.toLowerCase() === "f" && loadedObj) centerAndFrame(loadedObj);
 });
 
 // ---------- Render loop ----------
