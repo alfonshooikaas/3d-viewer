@@ -23,11 +23,7 @@ export function createHotspotSystem({ pivot, camera, domElement }) {
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.copy(position);
-
-    mesh.userData = {
-      type: "hotspot",
-      ...data,
-    };
+    mesh.userData = { type: "hotspot", ...data };
 
     pivot.add(mesh);
     hotspots.push(mesh);
@@ -53,9 +49,9 @@ export function createHotspotSystem({ pivot, camera, domElement }) {
     if (hits.length && cb) cb(hits[0].object);
   }
 
-  function onPointerMove(event, cb) {
+  function onPointerMove(event) {
     const hits = raycast(event);
-    cb?.(hits.length ? hits[0].object : null);
+    return hits.length ? hits[0].object : null;
   }
 
   return {
