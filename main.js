@@ -11,6 +11,7 @@ import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/control
 import { OBJLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/OBJLoader.js";
 import { MTLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/MTLLoader.js";
 import { createUI } from "./ui.js";
+import { createHotspotSystem } from "./hotspots.js";
 
 // ---------- FILES ----------
 const OBJ_FILE = "model.obj";
