@@ -1,8 +1,9 @@
-// main.js — Three.js engine + UI hookup
-// Files expected in repo root:
+// main.js — Scene + UI + Hotspots orchestrator
+// Expected files in repo root:
 // index.html (loads main.js as type="module")
 // main.js
 // ui.js
+// hotspots.js
 // model.obj
 // model.mtl (optional)
 
@@ -10,6 +11,7 @@ import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
 import { OBJLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/OBJLoader.js";
 import { MTLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/MTLLoader.js";
+
 import { createUI } from "./ui.js";
 import { createHotspotSystem } from "./hotspots.js";
 
@@ -105,6 +107,13 @@ scene.add(pivot);
 let loadedObj = null;
 const originalMaterials = new WeakMap();
 
+// ---------- Hotspot system ----------
+const hotspotSystem = createHotspotSystem({
+  pivot,
+  camera,
+  domElement: renderer.domElement,
+});
+
 // ---------- Apply look ----------
 function applyLook() {
   // background
@@ -159,7 +168,6 @@ function applyMaterials(root) {
       return;
     }
 
-    // restore original
     const orig = originalMaterials.get(o);
     if (orig) o.material = orig;
 
@@ -167,10 +175,10 @@ function applyMaterials(root) {
       o.material.color = new THREE.Color(meshHex);
     }
 
-    // pastel-friendly tweak
     if (o.material) {
       if ("metalness" in o.material) o.material.metalness = 0;
-      if ("roughness" in o.material) o.material.roughness = Math.max(0.75, o.material.roughness ?? 0.9);
+      if ("roughness" in o.material)
+        o.material.roughness = Math.max(0.75, o.material.roughness ?? 0.9);
       o.material.needsUpdate = true;
     }
   });
@@ -204,10 +212,8 @@ function centerAndFrame(obj) {
   camera.far = Math.max(maxDim * 2000, 10);
   camera.updateProjectionMatrix();
 
-  const target = new THREE.Vector3(0, 0, 0);
   camera.position.set(0, maxDim * 0.22, distance);
-  controls.target.copy(target);
-  camera.lookAt(target);
+  controls.target.set(0, 0, 0);
   controls.update();
 }
 
@@ -223,6 +229,21 @@ function loadObj(objLoader) {
       applyLook();
       requestAnimationFrame(() => centerAndFrame(obj));
 
+      // ----- Hotspots -----
+      hotspotSystem.clearHotspots();
+
+      // Example hotspot positions (model-local coordinates)
+      hotspotSystem.addHotspot(
+        new THREE.Vector3(0.1, 0.15, 0.0),
+        { label: "Top feature" }
+      );
+
+      hotspotSystem.addHotspot(
+        new THREE.Vector3(-0.08, 0.05, 0.12),
+        { label: "Side detail" }
+      );
+
+      // ----- UI -----
       createUI({
         params,
         applyLook,
@@ -254,7 +275,24 @@ if (MTL_FILE) {
   loadObj(new OBJLoader());
 }
 
-// Hotkey
+// ---------- Hotspot interaction ----------
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  hotspotSystem.onPointerDown(e, (hotspot) => {
+    console.log("Hotspot clicked:", hotspot.userData);
+
+    // simple feedback
+    hotspot.material.color.set("#00BCD4");
+  });
+});
+
+renderer.domElement.addEventListener("pointermove", (e) => {
+  hotspotSystem.onPointerMove(e, (hotspot) => {
+    hotspotSystem.hotspots.forEach(h => h.scale.setScalar(1));
+    if (hotspot) hotspot.scale.setScalar(1.5);
+  });
+});
+
+// ---------- Hotkey ----------
 window.addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "f" && loadedObj) centerAndFrame(loadedObj);
 });
