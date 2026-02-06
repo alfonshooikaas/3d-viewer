@@ -9,9 +9,14 @@ const MTL_FILE = "model.mtl";      // "" if you don't have one
 const TEXTURE_PATH = "";           // e.g. "textures/" if your .mtl uses bare filenames
 const PLACE_ON_GROUND = false;     // true = sit on y=0, false = true center
 
-// Blender "World" color:
-const WORLD_COLOR = "#FFE8E8";     // Blender world color #FFE8E8FF -> alpha ignored
-const ENV_INTENSITY = 1.0;         // tweak 0.8–1.2
+// Blender "World" color (alpha ignored on web)
+const WORLD_COLOR = "#FFE8E8";
+
+// Look tuning (match Blender-by-eye)
+const EXPOSURE = 1.28;             // try 1.15–1.45
+const AMBIENT_INTENSITY = 0.55;    // lifts dark colors
+const HEMI_INTENSITY = 0.95;       // soft world shading
+const KEY_INTENSITY = 0.55;        // adds gentle form shading (invisible “lamp”)
 // ---------------------------
 
 const container = document.getElementById("app");
@@ -31,7 +36,7 @@ document.body.appendChild(hud);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(WORLD_COLOR);
 
-// Helpers (optional)
+// Helpers (keep off for clean look)
 // scene.add(new THREE.GridHelper(10, 10));
 // scene.add(new THREE.AxesHelper(2));
 
@@ -44,24 +49,35 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-// Blender-ish “world-only” feel (less contrasty than ACES)
-renderer.toneMapping = THREE.NoToneMapping;
-renderer.toneMappingExposure = 1.0;
+// IMPORTANT for Blender-like brightness:
+// - ACES lifts mids nicely
+// - Exposure pushes overall brightness
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = EXPOSURE;
 
-// Use physically-correct light falloff/intensity handling
-renderer.physicallyCorrectLights = true;
+// IMPORTANT for this aesthetic:
+// physicallyCorrectLights tends to look too dark compared to Blender viewport
+renderer.physicallyCorrectLights = false;
 
 container.appendChild(renderer.domElement);
 
-// --- World-only environment light (no lamps) ---
-// This approximates Blender's "World" lighting (top/bottom same tint).
+// ---- Lighting: "world + a bit of shading" ----
+// Ambient fill: lifts dark areas without adding directionality
+scene.add(new THREE.AmbientLight(new THREE.Color(WORLD_COLOR), AMBIENT_INTENSITY));
+
+// Hemisphere: soft environment shading (top/bottom). Give sky a slightly whiter tint.
 scene.add(
   new THREE.HemisphereLight(
-    new THREE.Color(WORLD_COLOR),
-    new THREE.Color(WORLD_COLOR),
-    ENV_INTENSITY
+    new THREE.Color("#FFFFFF"),     // sky (slightly brighter)
+    new THREE.Color(WORLD_COLOR),   // ground tint
+    HEMI_INTENSITY
   )
 );
+
+// Soft key: subtle form shading without looking like a “light setup”
+const key = new THREE.DirectionalLight(0xffffff, KEY_INTENSITY);
+key.position.set(1.2, 2.0, 1.4);
+scene.add(key);
 
 // Controls
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -69,13 +85,13 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.enablePan = false;
 
-// Resize (important: call before framing)
+// Resize (important: keep canvas CSS size + buffer aligned)
 function resize() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   if (!w || !h) return;
 
-  // Keep CSS size + buffer size aligned (prevents weird “corner” renders)
+  // updateStyle=true prevents weird framing/offset issues
   renderer.setSize(w, h, true);
 
   camera.aspect = w / h;
@@ -84,24 +100,27 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// Fallback material (world-only shading wants rough + non-metal)
+// Fallback material (if MTL missing). Keep rough, non-metal, slightly “matte”
 function applyFallbackMaterial(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
 
     if (!o.material) {
       o.material = new THREE.MeshStandardMaterial({
-        color: 0xcccccc,   // change if you want a specific material color
-        roughness: 1.0,
+        color: 0xcccccc,
+        roughness: 0.9,
         metalness: 0.0,
       });
     }
 
-    // Ensure consistent response under env-only light
-    if (o.material && "roughness" in o.material) o.material.roughness = 1.0;
-    if (o.material && "metalness" in o.material) o.material.metalness = 0.0;
-
-    o.material.needsUpdate = true;
+    // If MTL created a Phong/Lambert-like material, it can look harsh/dark.
+    // Nudge common properties gently without overriding colors.
+    const m = o.material;
+    if (m) {
+      if ("metalness" in m) m.metalness = 0.0;
+      if ("roughness" in m) m.roughness = Math.max(0.75, m.roughness ?? 0.9);
+      m.needsUpdate = true;
+    }
   });
 }
 
@@ -130,8 +149,7 @@ function centerAndFrame(obj) {
 
   if (PLACE_ON_GROUND) {
     const box2 = new THREE.Box3().setFromObject(obj);
-    const minY = box2.min.y;
-    pivot.position.y -= minY;
+    pivot.position.y -= box2.min.y;
     pivot.updateMatrixWorld(true);
   }
 
@@ -150,27 +168,26 @@ function centerAndFrame(obj) {
   camera.far = Math.max(maxDim3 * 2000, 10);
   camera.updateProjectionMatrix();
 
-  camera.position.set(target.x, target.y + maxDim3 * 0.25, target.z + distance);
+  camera.position.set(target.x, target.y + maxDim3 * 0.22, target.z + distance);
   controls.target.copy(target);
   camera.lookAt(target);
   controls.update();
 
   hud.textContent =
     `Loaded ✓\n` +
-    `Approx size: ${maxDim3.toFixed(4)}\n` +
-    `World-only light (Hemisphere)\n` +
+    `Exposure: ${renderer.toneMappingExposure}\n` +
     `Press F to refit, R to reset`;
-  setTimeout(() => hud.remove(), 2500);
+  setTimeout(() => hud.remove(), 2000);
 }
 
-// Hotkeys: F to refit, R to reset view
+// Hotkeys
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
   if (k === "f" && loadedObj) centerAndFrame(loadedObj);
   if (k === "r") controls.reset();
 });
 
-// Load OBJ
+// Load OBJ (with or without MTL)
 function loadObj(objLoader) {
   hud.textContent = `Loading ${OBJ_FILE}…`;
 
@@ -182,6 +199,7 @@ function loadObj(objLoader) {
       pivot.add(obj);
 
       applyFallbackMaterial(obj);
+
       requestAnimationFrame(() => centerAndFrame(obj));
     },
     undefined,
