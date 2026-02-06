@@ -1,17 +1,15 @@
-// main.js (engine) — imports UI from ./ui.js
-// Expected files in repo root:
-//   index.html  (loads ./main.js as type="module")
-//   main.js
-//   ui.js
-//   model.obj
-//   model.mtl (optional)
-//   textures/... (optional)
+// main.js — Three.js engine + UI hookup
+// Files expected in repo root:
+// index.html (loads main.js as type="module")
+// main.js
+// ui.js
+// model.obj
+// model.mtl (optional)
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
 import { OBJLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/OBJLoader.js";
 import { MTLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/MTLLoader.js";
-
 import { createUI } from "./ui.js";
 
 // ---------- FILES ----------
@@ -22,19 +20,19 @@ const TEXTURE_PATH = "";      // e.g. "textures/"
 
 // ---------- LIVE PARAMS (UI edits these) ----------
 export const params = {
-  // scene / renderer
+  // renderer / scene
   background: "#FFE8E8",
-  toneMapping: "ACES",           // "ACES" | "NONE"
+  toneMapping: "ACES",          // "ACES" | "NONE"
   exposure: 1.45,
   physicallyCorrectLights: false,
 
-  // lights
+  // lighting
   ambientColor: "#FFE8E8",
   ambientIntensity: 1.75,
 
   hemiSky: "#FFFFFF",
   hemiGround: "#FFE8E8",
-  hemiIntensity: 0.80,
+  hemiIntensity: 0.8,
 
   keyColor: "#FFFFFF",
   keyIntensity: 1.25,
@@ -42,12 +40,10 @@ export const params = {
   keyPosY: 2.0,
   keyPosZ: 1.4,
 
-  // material override
+  // materials
   overrideMaterials: false,
   overrideRoughness: 0.9,
   overrideMetalness: 0.0,
-
-  // mesh color overrides (uuid -> hex). UI will mutate this.
   meshColors: {},
 
   // framing
@@ -78,11 +74,12 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.enablePan = false;
 
-// Resize: keep CSS size + buffer aligned
+// Resize
 function resize() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
   if (!w || !h) return;
+
   renderer.setSize(w, h, true);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
@@ -105,12 +102,9 @@ const pivot = new THREE.Group();
 scene.add(pivot);
 
 let loadedObj = null;
-let meshList = []; // [{ name, mesh }]
+const originalMaterials = new WeakMap();
 
-// Store originals so we can toggle material override on/off
-const originalMaterials = new WeakMap(); // mesh -> material
-
-// ---------- Look application ----------
+// ---------- Apply look ----------
 function applyLook() {
   // background
   scene.background = new THREE.Color(params.background);
@@ -118,8 +112,10 @@ function applyLook() {
   // renderer
   renderer.physicallyCorrectLights = !!params.physicallyCorrectLights;
   renderer.toneMapping =
-    params.toneMapping === "ACES" ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
-  renderer.toneMapping = params.;
+    params.toneMapping === "ACES"
+      ? THREE.ACESFilmicToneMapping
+      : THREE.NoToneMapping;
+  renderer.toneMappingExposure = params.exposure;
 
   // lights
   ambient.color = new THREE.Color(params.ambientColor);
@@ -137,33 +133,16 @@ function applyLook() {
   if (loadedObj) applyMaterials(loadedObj);
 }
 
-// ---------- Mesh discovery ----------
-function niceMeshName(mesh, i) {
-  const n = (mesh.name || "").trim();
-  return n ? n : `Mesh ${String(i + 1).padStart(2, "0")}`;
-}
-
-function collectMeshes(root) {
-  meshList = [];
-  let idx = 0;
-  root.traverse((o) => {
-    if (!o.isMesh) return;
-    meshList.push({ name: niceMeshName(o, idx), mesh: o });
-    idx += 1;
-  });
-  meshList.sort((a, b) => a.name.localeCompare(b.name));
-}
-
 // ---------- Materials ----------
 function applyMaterials(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
 
-    // store original once
-    if (!originalMaterials.has(o)) originalMaterials.set(o, o.material);
+    if (!originalMaterials.has(o)) {
+      originalMaterials.set(o, o.material);
+    }
 
-    // per-mesh override color (uuid -> hex string)
-    const meshHex = params.meshColors?.[o.uuid];
+    const meshHex = params.meshColors[o.uuid];
 
     if (params.overrideMaterials) {
       const baseHex =
@@ -183,14 +162,13 @@ function applyMaterials(root) {
     const orig = originalMaterials.get(o);
     if (orig) o.material = orig;
 
-    // apply mesh color on top if supported
     if (meshHex && o.material?.color) {
       o.material.color = new THREE.Color(meshHex);
     }
 
-    // gentle matte nudge (keeps things pastel)
+    // pastel-friendly tweak
     if (o.material) {
-      if ("metalness" in o.material) o.material.metalness = 0.0;
+      if ("metalness" in o.material) o.material.metalness = 0;
       if ("roughness" in o.material) o.material.roughness = Math.max(0.75, o.material.roughness ?? 0.9);
       o.material.needsUpdate = true;
     }
@@ -217,28 +195,22 @@ function centerAndFrame(obj) {
     pivot.updateMatrixWorld(true);
   }
 
-  const box3 = new THREE.Box3().setFromObject(obj);
-  const size3 = box3.getSize(new THREE.Vector3());
-  const maxDim3 = Math.max(size3.x, size3.y, size3.z);
-
-  const target = new THREE.Vector3(0, 0, 0);
-  if (params.placeOnGround) target.y = (size3.y || maxDim3) * 0.45;
-
   const fov = THREE.MathUtils.degToRad(camera.fov);
-  let distance = (maxDim3 / 2) / Math.tan(fov / 2);
+  let distance = (maxDim / 2) / Math.tan(fov / 2);
   distance *= 1.6;
 
-  camera.near = Math.max(maxDim3 / 1000, 0.001);
-  camera.far = Math.max(maxDim3 * 2000, 10);
+  camera.near = Math.max(maxDim / 1000, 0.001);
+  camera.far = Math.max(maxDim * 2000, 10);
   camera.updateProjectionMatrix();
 
-  camera.position.set(target.x, target.y + maxDim3 * 0.22, target.z + distance);
+  const target = new THREE.Vector3(0, 0, 0);
+  camera.position.set(0, maxDim * 0.22, distance);
   controls.target.copy(target);
   camera.lookAt(target);
   controls.update();
 }
 
-// ---------- Loading ----------
+// ---------- Load OBJ ----------
 function loadObj(objLoader) {
   objLoader.load(
     OBJ_FILE,
@@ -247,25 +219,13 @@ function loadObj(objLoader) {
       loadedObj = obj;
       pivot.add(obj);
 
-      collectMeshes(obj);
       applyLook();
-
-      // frame after one tick
       requestAnimationFrame(() => centerAndFrame(obj));
 
-      // create UI once model exists (so mesh list is available)
       createUI({
         params,
         applyLook,
         refit: () => loadedObj && centerAndFrame(loadedObj),
-        getMeshes: () =>
-          meshList.map(({ name, mesh }) => ({
-            name,
-            uuid: mesh.uuid,
-            currentColor:
-              params.meshColors?.[mesh.uuid] ||
-              (mesh.material?.color ? `#${mesh.material.color.getHexString()}` : "#cccccc"),
-          })),
       });
     },
     undefined,
@@ -273,6 +233,7 @@ function loadObj(objLoader) {
   );
 }
 
+// ---------- Load sequence ----------
 if (MTL_FILE) {
   const mtlLoader = new MTLLoader();
   if (TEXTURE_PATH) mtlLoader.setPath(TEXTURE_PATH);
@@ -286,21 +247,18 @@ if (MTL_FILE) {
       loadObj(objLoader);
     },
     undefined,
-    (err) => {
-      console.warn("MTL failed; loading OBJ without materials:", err);
-      loadObj(new OBJLoader());
-    }
+    () => loadObj(new OBJLoader())
   );
 } else {
   loadObj(new OBJLoader());
 }
 
-// Hotkeys
+// Hotkey
 window.addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "f" && loadedObj) centerAndFrame(loadedObj);
 });
 
-// Render loop
+// ---------- Render loop ----------
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
