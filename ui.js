@@ -6,9 +6,6 @@ export function createUI({ params, applyLook, refit }) {
   panel.className = "ui-panel";
   document.body.appendChild(panel);
 
-  let pos = { x: 16, y: 16 };
-  setPos(pos.x, pos.y);
-
   /* ---------- Header ---------- */
   const header = document.createElement("div");
   header.className = "ui-header";
@@ -35,8 +32,6 @@ export function createUI({ params, applyLook, refit }) {
     panel.classList.toggle("ui-collapsed", collapsed);
     toggle.textContent = collapsed ? "▸" : "▾";
   };
-
-  makeDraggable(panel, header, setPos, () => pos);
 
   /* ---------- UI helpers ---------- */
 
@@ -131,77 +126,6 @@ export function createUI({ params, applyLook, refit }) {
   });
 
   button("Refit (F)", refit);
-
-  /* ---------- Positioning ---------- */
-
-  function setPos(x, y) {
-    pos.x = x;
-    pos.y = y;
-    panel.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-  }
-}
-
-/* ================== DRAG SYSTEM ================== */
-
-function makeDraggable(panel, handle, setPos, getPos) {
-  let dragging = false;
-  let startX = 0, startY = 0;
-  let baseX = 0, baseY = 0;
-  let nextX = 0, nextY = 0;
-  let raf = null;
-
-  let panelW = 0;
-  let panelH = 0;
-
-  handle.style.cursor = "grab";
-
-  function update() {
-    raf = null;
-    setPos(nextX, nextY);
-  }
-
-  handle.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    handle.setPointerCapture(e.pointerId);
-
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "grabbing";
-
-    const pos = getPos();
-    baseX = pos.x;
-    baseY = pos.y;
-    startX = e.clientX;
-    startY = e.clientY;
-
-    const rect = panel.getBoundingClientRect();
-    panelW = rect.width;
-    panelH = rect.height;
-  });
-
-  handle.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-
-    const margin = 8;
-    const maxX = window.innerWidth - panelW - margin;
-    const maxY = window.innerHeight - panelH - margin;
-
-    nextX = clamp(baseX + dx, margin, Math.max(margin, maxX));
-    nextY = clamp(baseY + dy, margin, Math.max(margin, maxY));
-
-    if (!raf) raf = requestAnimationFrame(update);
-  });
-
-  function stop() {
-    dragging = false;
-    document.body.style.userSelect = "";
-    document.body.style.cursor = "";
-  }
-
-  handle.addEventListener("pointerup", stop);
-  handle.addEventListener("pointercancel", stop);
 }
 
 /* ================== STYLES ================== */
@@ -214,6 +138,8 @@ function injectStyles() {
   s.textContent = `
     .ui-panel{
       position:fixed;
+      top:16px;
+      left:16px;
       width:300px;
       background:rgba(255,255,255,0.92);
       backdrop-filter:blur(12px);
@@ -229,10 +155,11 @@ function injectStyles() {
       align-items:center;
       padding:10px;
       font-weight:600;
-      cursor:grab;
       border-bottom:1px solid rgba(0,0,0,0.08);
     }
-    .ui-title{ pointer-events:none; }
+    .ui-title{
+      pointer-events:none;
+    }
     .ui-toggle{
       border:none;
       background:transparent;
@@ -245,20 +172,27 @@ function injectStyles() {
       flex-direction:column;
       gap:8px;
     }
-    .ui-collapsed .ui-body{ display:none; }
+    .ui-collapsed .ui-body{
+      display:none;
+    }
     .ui-row{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:8px;
     }
-    .ui-label{ flex:1; color:#333; }
+    .ui-label{
+      flex:1;
+      color:#333;
+    }
     .ui-value{
       display:flex;
       gap:6px;
       align-items:center;
     }
-    input[type=range]{ width:120px; }
+    input[type=range]{
+      width:120px;
+    }
     input[type=number]{
       width:60px;
       border-radius:6px;
