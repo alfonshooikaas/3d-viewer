@@ -1,4 +1,4 @@
-// main.js — Scene + UI + Hotspots orchestrator (FINAL)
+// main.js — Scene + UI + Hotspots orchestrator (COMPLETE & SAFE)
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
@@ -97,7 +97,7 @@ const hotspotSystem = createHotspotSystem({
   domElement: renderer.domElement,
 });
 
-let hoveredHotspot = null; // 🔑 stable hover state
+let hoveredHotspot = null;
 
 // ----------------------------------------------------
 // APPLY LOOK
@@ -124,7 +124,7 @@ function applyLook() {
 }
 
 // ----------------------------------------------------
-// CENTER + FRAME MODEL
+// CENTER + FRAME
 // ----------------------------------------------------
 function centerAndFrame(obj) {
   obj.updateMatrixWorld(true);
@@ -160,3 +160,92 @@ function loadObj(loader) {
   loader.load(
     OBJ_FILE,
     (obj) => {
+      pivot.clear();
+      loadedObj = obj;
+      pivot.add(obj);
+
+      applyLook();
+
+      requestAnimationFrame(() => {
+        const modelSize = centerAndFrame(obj);
+
+        // ----- HOTSPOTS -----
+        hotspotSystem.clearHotspots();
+
+        const BASE_SCALE = modelSize * 0.12;
+
+        const debug = hotspotSystem.addHotspot(
+          new THREE.Vector3(0, 0, modelSize * 0.3),
+          { label: "DEBUG" }
+        );
+
+        hotspotSystem.hotspots.forEach(h => {
+          h.userData.baseScale = BASE_SCALE;
+          h.scale.setScalar(BASE_SCALE);
+        });
+
+        // ----- UI -----
+        createUI({
+          params,
+          applyLook,
+          refit: () => centerAndFrame(loadedObj),
+        });
+      });
+    },
+    undefined,
+    (err) => console.error("OBJ load error:", err)
+  );
+}
+
+// Load sequence
+if (MTL_FILE) {
+  const mtlLoader = new MTLLoader();
+  mtlLoader.load(
+    MTL_FILE,
+    (materials) => {
+      materials.preload();
+      const loader = new OBJLoader();
+      loader.setMaterials(materials);
+      loadObj(loader);
+    },
+    undefined,
+    () => loadObj(new OBJLoader())
+  );
+} else {
+  loadObj(new OBJLoader());
+}
+
+// ----------------------------------------------------
+// HOTSPOT INTERACTION (FIXED)
+// ----------------------------------------------------
+renderer.domElement.addEventListener("pointermove", (e) => {
+  const hit = hotspotSystem.onPointerMove(e);
+
+  if (hit === hoveredHotspot) return;
+
+  if (hoveredHotspot) {
+    hoveredHotspot.scale.setScalar(hoveredHotspot.userData.baseScale);
+  }
+
+  if (hit) {
+    hit.scale.setScalar(hit.userData.baseScale * 2.0);
+  }
+
+  hoveredHotspot = hit;
+});
+
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  hotspotSystem.onPointerDown(e, (h) => {
+    console.log("Hotspot clicked:", h.userData);
+  });
+});
+
+// ----------------------------------------------------
+// RENDER LOOP
+// ----------------------------------------------------
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
