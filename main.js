@@ -14,7 +14,7 @@ const WORLD_COLOR = "#FFE8E8";
 
 // Look tuning (match Blender-by-eye)
 const EXPOSURE = 1.50;             // try 1.15–1.45
-const AMBIENT_INTENSITY = 0.55;    // lifts dark colors
+const AMBIENT_INTENSITY = 0.75;    // lifts dark colors
 const HEMI_INTENSITY = 0.95;       // soft world shading
 const KEY_INTENSITY = 0.55;        // adds gentle form shading (invisible “lamp”)
 // ---------------------------
