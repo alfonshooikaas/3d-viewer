@@ -228,7 +228,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 
   if (hit) {
-    hit.scale.setScalar(hit.userData.baseScale * 2.0);
+    hit.scale.setScalar(hit.userData.baseScale * 0.25);
   }
 
   hoveredHotspot = hit;
