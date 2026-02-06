@@ -25,19 +25,19 @@ export const params = {
   // scene / renderer
   background: "#FFE8E8",
   toneMapping: "ACES",           // "ACES" | "NONE"
-  exposure: 1.42,
+  exposure: 1.45,
   physicallyCorrectLights: false,
 
   // lights
   ambientColor: "#FFE8E8",
-  ambientIntensity: 0.75,
+  ambientIntensity: 1.75,
 
   hemiSky: "#FFFFFF",
   hemiGround: "#FFE8E8",
-  hemiIntensity: 1.05,
+  hemiIntensity: 0.80,
 
   keyColor: "#FFFFFF",
-  keyIntensity: 0.45,
+  keyIntensity: 1.25,
   keyPosX: 1.2,
   keyPosY: 2.0,
   keyPosZ: 1.4,
@@ -119,7 +119,7 @@ function applyLook() {
   renderer.physicallyCorrectLights = !!params.physicallyCorrectLights;
   renderer.toneMapping =
     params.toneMapping === "ACES" ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
-  renderer.toneMappingExposure = params.exposure;
+  renderer.toneMapping = params.;
 
   // lights
   ambient.color = new THREE.Color(params.ambientColor);
