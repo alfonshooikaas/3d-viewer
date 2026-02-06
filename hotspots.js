@@ -25,20 +25,30 @@ export function createHotspotSystem({
   });
 
   function addHotspot(position, data = {}) {
-    const geo = new THREE.SphereGeometry(0.02, 16, 16);
-    const mesh = new THREE.Mesh(geo, baseMaterial.clone());
+  const geo = new THREE.SphereGeometry(0.1, 24, 24); // 🔴 MUCH BIGGER
 
-    mesh.position.copy(position);
-    mesh.userData = {
-      type: "hotspot",
-      ...data,
-    };
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xff2d55,
+    emissive: 0xff2d55,     // 🔥 glow
+    emissiveIntensity: 0.6,
+    roughness: 0.3,
+    metalness: 0.0,
+    depthTest: true,
+  });
 
-    pivot.add(mesh);
-    hotspots.push(mesh);
+  const mesh = new THREE.Mesh(geo, mat);
 
-    return mesh;
-  }
+  mesh.position.copy(position);
+  mesh.userData = {
+    type: "hotspot",
+    ...data,
+  };
+
+  pivot.add(mesh);
+  hotspots.push(mesh);
+
+  return mesh;
+}
 
   function clearHotspots() {
     hotspots.forEach(h => pivot.remove(h));
