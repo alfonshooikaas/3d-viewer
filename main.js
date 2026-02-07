@@ -1,5 +1,4 @@
-// main.js — Scene + UI + Hotspots orchestrator (COMPLETE & SAFE)
-// Includes: OBJ+MTL load, pastel lighting, UI, hotspots, smooth hover scale to 125%
+// main.js — Full viewer with UI, hotspots, and mesh hover selection
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
@@ -13,7 +12,7 @@ import { createHotspotSystem } from "./hotspots.js";
 // FILES
 // ----------------------------------------------------
 const OBJ_FILE = "model.obj";
-const MTL_FILE = "model.mtl";
+const MTL_FILE = "model.mtl"; // "" if none
 
 // ----------------------------------------------------
 // PARAMETERS (UI edits these)
@@ -101,8 +100,21 @@ const hotspotSystem = createHotspotSystem({
 let hoveredHotspot = null;
 
 // Hover animation tuning
-const HOVER_SCALE_MULT = 1.25; // 125%
-const HOVER_LERP = 0.15;       // 0..1 (higher = snappier)
+const HOVER_SCALE_MULT = 1.25;
+const HOVER_LERP = 0.15;
+
+// ----------------------------------------------------
+// MESH HOVER (model parts)
+// ----------------------------------------------------
+let modelMeshes = [];
+let hoveredMesh = null;
+
+const meshRaycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+
+function darkenColor(color, factor = 0.9) {
+  return color.clone().multiplyScalar(factor);
+}
 
 // ----------------------------------------------------
 // APPLY LOOK
@@ -129,7 +141,7 @@ function applyLook() {
 }
 
 // ----------------------------------------------------
-// CENTER + FRAME
+// CENTER + FRAME MODEL
 // ----------------------------------------------------
 function centerAndFrame(obj) {
   obj.updateMatrixWorld(true);
@@ -171,32 +183,30 @@ function loadObj(loader) {
 
       applyLook();
 
+      // Collect meshes for hover
+      modelMeshes = [];
+      obj.traverse((o) => {
+        if (o.isMesh && o.material && o.material.color) {
+          modelMeshes.push(o);
+          if (!o.userData.originalColor) {
+            o.userData.originalColor = o.material.color.clone();
+          }
+        }
+      });
+
       requestAnimationFrame(() => {
         const modelSize = centerAndFrame(obj);
 
         // ----- HOTSPOTS -----
         hotspotSystem.clearHotspots();
 
-        // Make dots smaller in normal state
         const BASE_SCALE = modelSize * 0.06;
 
-        // DEBUG hotspot (remove later)
         hotspotSystem.addHotspot(
           new THREE.Vector3(0, 0, modelSize * 0.3),
           { label: "DEBUG" }
         );
 
-        // Your hotspots (replace positions)
-        hotspotSystem.addHotspot(
-          new THREE.Vector3(0.1, 0.15, 0.0),
-          { label: "Top feature" }
-        );
-        hotspotSystem.addHotspot(
-          new THREE.Vector3(-0.08, 0.05, 0.12),
-          { label: "Side detail" }
-        );
-
-        // Initialize per-hotspot animation state
         hotspotSystem.hotspots.forEach((h) => {
           h.userData.baseScale = BASE_SCALE;
           h.userData.targetScale = BASE_SCALE;
@@ -235,33 +245,59 @@ if (MTL_FILE) {
 }
 
 // ----------------------------------------------------
-// HOTSPOT INTERACTION (smooth hover)
+// POINTER MOVE — HOTSPOTS + MESH HOVER
 // ----------------------------------------------------
 renderer.domElement.addEventListener("pointermove", (e) => {
-  const hit = hotspotSystem.onPointerMove(e);
-
-  // Only react to hover CHANGES (no per-frame scale mutations here)
-  if (hit === hoveredHotspot) return;
-
-  // hover-off previous
-  if (hoveredHotspot) {
-    hoveredHotspot.userData.targetScale = hoveredHotspot.userData.baseScale;
+  // ---- Hotspots ----
+  const hitHotspot = hotspotSystem.onPointerMove(e);
+  if (hitHotspot !== hoveredHotspot) {
+    if (hoveredHotspot) {
+      hoveredHotspot.userData.targetScale =
+        hoveredHotspot.userData.baseScale;
+    }
+    if (hitHotspot) {
+      hitHotspot.userData.targetScale =
+        hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
+    }
+    hoveredHotspot = hitHotspot;
   }
 
-  // hover-on new
-  if (hit) {
-    hit.userData.targetScale = hit.userData.baseScale * HOVER_SCALE_MULT;
-  }
+  // ---- Mesh hover ----
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-  hoveredHotspot = hit;
+  meshRaycaster.setFromCamera(mouseNDC, camera);
+  const hits = meshRaycaster.intersectObjects(modelMeshes, false);
+  const hitMesh = hits.length ? hits[0].object : null;
+
+  if (hitMesh !== hoveredMesh) {
+    if (hoveredMesh) {
+      hoveredMesh.material.color.copy(
+        hoveredMesh.userData.originalColor
+      );
+    }
+    if (hitMesh) {
+      hitMesh.material.color.copy(
+        darkenColor(hitMesh.userData.originalColor, 0.9)
+      );
+    }
+    hoveredMesh = hitMesh;
+  }
 });
 
 renderer.domElement.addEventListener("pointerleave", () => {
-  // Reset when leaving canvas
   if (hoveredHotspot) {
-    hoveredHotspot.userData.targetScale = hoveredHotspot.userData.baseScale;
+    hoveredHotspot.userData.targetScale =
+      hoveredHotspot.userData.baseScale;
+    hoveredHotspot = null;
   }
-  hoveredHotspot = null;
+  if (hoveredMesh) {
+    hoveredMesh.material.color.copy(
+      hoveredMesh.userData.originalColor
+    );
+    hoveredMesh = null;
+  }
 });
 
 renderer.domElement.addEventListener("pointerdown", (e) => {
@@ -276,13 +312,14 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
 function animate() {
   requestAnimationFrame(animate);
 
-  // Smooth hotspot scale animation
+  // Animate hotspot scale smoothly
   hotspotSystem.hotspots.forEach((h) => {
     const base = h.userData.baseScale;
     const target = h.userData.targetScale ?? base;
     const current = h.scale.x;
-    const next = THREE.MathUtils.lerp(current, target, HOVER_LERP);
-    h.scale.setScalar(next);
+    h.scale.setScalar(
+      THREE.MathUtils.lerp(current, target, HOVER_LERP)
+    );
   });
 
   controls.update();
