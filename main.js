@@ -7,6 +7,7 @@ import { MTLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/MTL
 
 import { createUI } from "./ui.js";
 import { createHotspotSystem } from "./hotspots.js";
+import { createHotspotTooltip } from "./tooltips.js"; // ✅ NEW
 
 /* -------------------------------------------------- */
 /* FILES */
@@ -51,6 +52,9 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 container.appendChild(renderer.domElement);
+
+// ✅ Tooltip system (isolated)
+const hotspotTooltip = createHotspotTooltip({ camera, renderer });
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -207,22 +211,9 @@ function applyLook() {
 /* -------------------------------------------------- */
 function centerAndFrame(obj) {
   const box = new THREE.Box3().setFromObject(obj);
-  const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  if (!maxDim) return maxDim;
-
   pivot.position.set(-center.x, -center.y, -center.z);
-
-  const dist =
-    (maxDim / 2) /
-    Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) *
-    1.6;
-
-  camera.position.set(0, maxDim * 0.22, dist);
-  controls.target.set(0, 0, 0);
   controls.update();
-  return maxDim;
 }
 
 /* -------------------------------------------------- */
@@ -247,13 +238,13 @@ function loadObj(loader) {
     });
 
     requestAnimationFrame(() => {
-      const size = centerAndFrame(obj);
+      centerAndFrame(obj);
 
       hotspotSystem.clearHotspots();
-      const BASE = size * 0.06;
+      const BASE = 0.02;
 
       hotspotSystem.addHotspot(
-        new THREE.Vector3(0, 0, size * 0.3),
+        new THREE.Vector3(0, 0, 0.3),
         { label: "Feature" }
       );
 
@@ -286,24 +277,32 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   // --- Hotspots ---
   const hitHotspot = hotspotSystem.onPointerMove(e);
   if (hitHotspot !== hoveredHotspot) {
-    if (hoveredHotspot)
+    if (hoveredHotspot) {
       hoveredHotspot.userData.targetScale =
         hoveredHotspot.userData.baseScale;
-    if (hitHotspot)
+      hotspotTooltip.hide(); // ✅
+    }
+    if (hitHotspot) {
       hitHotspot.userData.targetScale =
         hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
+      hotspotTooltip.show(
+        hitHotspot,
+        hitHotspot.userData.label || ""
+      ); // ✅
+    }
     hoveredHotspot = hitHotspot;
   }
 
   if (lockedMesh) return;
 
-  // --- Mesh hover ---
+  // --- Mesh hover (unchanged) ---
   const rect = renderer.domElement.getBoundingClientRect();
   mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
   meshRaycaster.setFromCamera(mouseNDC, camera);
-  const hit = meshRaycaster.intersectObjects(modelMeshes)[0]?.object || null;
+  const hit =
+    meshRaycaster.intersectObjects(modelMeshes)[0]?.object || null;
 
   if (hit !== hoveredMesh) {
     hoveredMesh = hit;
@@ -315,7 +314,9 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         m.userData.targetOpacity =
           m === hit ? m.userData.originalOpacity : DIM_OPACITY;
         m.material.color.copy(
-          m.userData.originalColor.clone().multiplyScalar(m === hit ? 0.9 : 1)
+          m.userData.originalColor
+            .clone()
+            .multiplyScalar(m === hit ? 0.9 : 1)
         );
       });
     } else {
@@ -354,10 +355,16 @@ function animate() {
   });
 
   hotspotSystem.hotspots.forEach((h) => {
-    const base = h.userData.baseScale;
-    const target = h.userData.targetScale ?? base;
-    h.scale.setScalar(THREE.MathUtils.lerp(h.scale.x, target, HOVER_LERP));
+    h.scale.setScalar(
+      THREE.MathUtils.lerp(
+        h.scale.x,
+        h.userData.targetScale,
+        HOVER_LERP
+      )
+    );
   });
+
+  hotspotTooltip.update(); // ✅ keep tooltip glued
 
   controls.update();
   renderer.render(scene, camera);
