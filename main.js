@@ -1,4 +1,4 @@
-// main.js — Full viewer with UI, hotspots, and mesh hover selection
+// main.js — Full interactive 3D viewer with mesh focus & hotspots
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
@@ -12,7 +12,7 @@ import { createHotspotSystem } from "./hotspots.js";
 // FILES
 // ----------------------------------------------------
 const OBJ_FILE = "model.obj";
-const MTL_FILE = "model.mtl"; // "" if none
+const MTL_FILE = "model.mtl";
 
 // ----------------------------------------------------
 // PARAMETERS (UI edits these)
@@ -89,7 +89,7 @@ scene.add(pivot);
 let loadedObj = null;
 
 // ----------------------------------------------------
-// HOTSPOT SYSTEM
+// HOTSPOTS
 // ----------------------------------------------------
 const hotspotSystem = createHotspotSystem({
   pivot,
@@ -98,22 +98,49 @@ const hotspotSystem = createHotspotSystem({
 });
 
 let hoveredHotspot = null;
-
-// Hover animation tuning
 const HOVER_SCALE_MULT = 1.25;
 const HOVER_LERP = 0.15;
 
 // ----------------------------------------------------
-// MESH HOVER (model parts)
+// MESH INTERACTION STATE
 // ----------------------------------------------------
 let modelMeshes = [];
 let hoveredMesh = null;
+let lockedMesh = null;
 
 const meshRaycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2();
 
-function darkenColor(color, factor = 0.9) {
-  return color.clone().multiplyScalar(factor);
+// Smooth opacity settings
+const DIM_OPACITY = 0.5;
+const OPACITY_LERP = 0.12;
+
+// ----------------------------------------------------
+// UI LABEL (mesh name)
+// ----------------------------------------------------
+const meshLabel = document.createElement("div");
+meshLabel.style.cssText = `
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.65);
+  color: white;
+  font: 12px system-ui, sans-serif;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+`;
+document.body.appendChild(meshLabel);
+
+function showMeshName(name) {
+  meshLabel.textContent = name;
+  meshLabel.style.opacity = "1";
+}
+function hideMeshName() {
+  meshLabel.style.opacity = "0";
 }
 
 // ----------------------------------------------------
@@ -141,169 +168,116 @@ function applyLook() {
 }
 
 // ----------------------------------------------------
-// CENTER + FRAME MODEL
+// CENTER + FRAME
 // ----------------------------------------------------
 function centerAndFrame(obj) {
   obj.updateMatrixWorld(true);
-
   const box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  if (!isFinite(maxDim) || maxDim === 0) return 1;
+  if (!maxDim) return;
 
   pivot.position.set(-center.x, -center.y, -center.z);
 
-  const distance =
+  const dist =
     (maxDim / 2) /
     Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) *
     1.6;
 
-  camera.near = Math.max(maxDim / 1000, 0.001);
-  camera.far = Math.max(maxDim * 2000, 10);
-  camera.updateProjectionMatrix();
-
-  camera.position.set(0, maxDim * 0.22, distance);
+  camera.position.set(0, maxDim * 0.22, dist);
   controls.target.set(0, 0, 0);
   controls.update();
-
-  return maxDim;
 }
 
 // ----------------------------------------------------
 // LOAD MODEL
 // ----------------------------------------------------
 function loadObj(loader) {
-  loader.load(
-    OBJ_FILE,
-    (obj) => {
-      pivot.clear();
-      loadedObj = obj;
-      pivot.add(obj);
+  loader.load(OBJ_FILE, (obj) => {
+    pivot.clear();
+    loadedObj = obj;
+    pivot.add(obj);
+    applyLook();
 
-      applyLook();
+    modelMeshes = [];
+    obj.traverse((m) => {
+      if (m.isMesh && m.material?.color) {
+        modelMeshes.push(m);
+        m.userData.originalColor = m.material.color.clone();
+        m.userData.originalOpacity = m.material.opacity ?? 1;
+        m.material.transparent = true;
+        m.userData.targetOpacity = m.userData.originalOpacity;
+      }
+    });
 
-      // Collect meshes for hover
-      modelMeshes = [];
-      obj.traverse((o) => {
-        if (o.isMesh && o.material && o.material.color) {
-          modelMeshes.push(o);
-          if (!o.userData.originalColor) {
-            o.userData.originalColor = o.material.color.clone();
-          }
-        }
-      });
-
-      requestAnimationFrame(() => {
-        const modelSize = centerAndFrame(obj);
-
-        // ----- HOTSPOTS -----
-        hotspotSystem.clearHotspots();
-
-        const BASE_SCALE = modelSize * 0.06;
-
-        hotspotSystem.addHotspot(
-          new THREE.Vector3(0, 0, modelSize * 0.3),
-          { label: "DEBUG" }
-        );
-
-        hotspotSystem.hotspots.forEach((h) => {
-          h.userData.baseScale = BASE_SCALE;
-          h.userData.targetScale = BASE_SCALE;
-          h.scale.setScalar(BASE_SCALE);
-        });
-
-        // ----- UI -----
-        createUI({
-          params,
-          applyLook,
-          refit: () => loadedObj && centerAndFrame(loadedObj),
-        });
-      });
-    },
-    undefined,
-    (err) => console.error("OBJ load error:", err)
-  );
+    requestAnimationFrame(() => {
+      centerAndFrame(obj);
+      createUI({ params, applyLook, refit: () => centerAndFrame(obj) });
+    });
+  });
 }
 
-// Load sequence
 if (MTL_FILE) {
-  const mtlLoader = new MTLLoader();
-  mtlLoader.load(
-    MTL_FILE,
-    (materials) => {
-      materials.preload();
-      const loader = new OBJLoader();
-      loader.setMaterials(materials);
-      loadObj(loader);
-    },
-    undefined,
-    () => loadObj(new OBJLoader())
-  );
+  new MTLLoader().load(MTL_FILE, (mats) => {
+    mats.preload();
+    const l = new OBJLoader();
+    l.setMaterials(mats);
+    loadObj(l);
+  });
 } else {
   loadObj(new OBJLoader());
 }
 
 // ----------------------------------------------------
-// POINTER MOVE — HOTSPOTS + MESH HOVER
+// POINTER MOVE
 // ----------------------------------------------------
 renderer.domElement.addEventListener("pointermove", (e) => {
-  // ---- Hotspots ----
-  const hitHotspot = hotspotSystem.onPointerMove(e);
-  if (hitHotspot !== hoveredHotspot) {
-    if (hoveredHotspot) {
-      hoveredHotspot.userData.targetScale =
-        hoveredHotspot.userData.baseScale;
-    }
-    if (hitHotspot) {
-      hitHotspot.userData.targetScale =
-        hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
-    }
-    hoveredHotspot = hitHotspot;
-  }
+  if (lockedMesh) return;
 
-  // ---- Mesh hover ----
   const rect = renderer.domElement.getBoundingClientRect();
   mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
   meshRaycaster.setFromCamera(mouseNDC, camera);
-  const hits = meshRaycaster.intersectObjects(modelMeshes, false);
-  const hitMesh = hits.length ? hits[0].object : null;
+  const hit = meshRaycaster.intersectObjects(modelMeshes)[0]?.object || null;
 
-  if (hitMesh !== hoveredMesh) {
-    if (hoveredMesh) {
-      hoveredMesh.material.color.copy(
-        hoveredMesh.userData.originalColor
-      );
+  if (hit !== hoveredMesh) {
+    hoveredMesh = hit;
+
+    if (hit) {
+      showMeshName(hit.name || "Part");
+      modelMeshes.forEach((m) => {
+        m.userData.targetOpacity = m === hit ? m.userData.originalOpacity : DIM_OPACITY;
+        m.material.color.copy(
+          m.userData.originalColor.clone().multiplyScalar(m === hit ? 0.9 : 1)
+        );
+      });
+    } else {
+      hideMeshName();
+      modelMeshes.forEach((m) => {
+        m.userData.targetOpacity = m.userData.originalOpacity;
+        m.material.color.copy(m.userData.originalColor);
+      });
     }
-    if (hitMesh) {
-      hitMesh.material.color.copy(
-        darkenColor(hitMesh.userData.originalColor, 0.9)
-      );
-    }
-    hoveredMesh = hitMesh;
   }
 });
 
-renderer.domElement.addEventListener("pointerleave", () => {
-  if (hoveredHotspot) {
-    hoveredHotspot.userData.targetScale =
-      hoveredHotspot.userData.baseScale;
-    hoveredHotspot = null;
-  }
+// ----------------------------------------------------
+// CLICK TO LOCK / UNLOCK
+// ----------------------------------------------------
+renderer.domElement.addEventListener("pointerdown", () => {
   if (hoveredMesh) {
-    hoveredMesh.material.color.copy(
-      hoveredMesh.userData.originalColor
-    );
-    hoveredMesh = null;
+    lockedMesh = hoveredMesh;
+    showMeshName(lockedMesh.name || "Part (locked)");
+  } else {
+    lockedMesh = null;
+    hideMeshName();
+    modelMeshes.forEach((m) => {
+      m.userData.targetOpacity = m.userData.originalOpacity;
+      m.material.color.copy(m.userData.originalColor);
+    });
   }
-});
-
-renderer.domElement.addEventListener("pointerdown", (e) => {
-  hotspotSystem.onPointerDown(e, (h) => {
-    console.log("Hotspot clicked:", h.userData);
-  });
 });
 
 // ----------------------------------------------------
@@ -312,14 +286,20 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
 function animate() {
   requestAnimationFrame(animate);
 
-  // Animate hotspot scale smoothly
+  // Smooth opacity lerp
+  modelMeshes.forEach((m) => {
+    m.material.opacity = THREE.MathUtils.lerp(
+      m.material.opacity,
+      m.userData.targetOpacity,
+      OPACITY_LERP
+    );
+  });
+
+  // Hotspot hover animation
   hotspotSystem.hotspots.forEach((h) => {
     const base = h.userData.baseScale;
     const target = h.userData.targetScale ?? base;
-    const current = h.scale.x;
-    h.scale.setScalar(
-      THREE.MathUtils.lerp(current, target, HOVER_LERP)
-    );
+    h.scale.setScalar(THREE.MathUtils.lerp(h.scale.x, target, HOVER_LERP));
   });
 
   controls.update();
