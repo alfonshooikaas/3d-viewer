@@ -172,7 +172,7 @@ function loadObj(loader) {
         // ----- HOTSPOTS -----
         hotspotSystem.clearHotspots();
 
-        const BASE_SCALE = modelSize * 0.12;
+        const BASE_SCALE = modelSize * 0.04;
 
         const debug = hotspotSystem.addHotspot(
           new THREE.Vector3(0, 0, modelSize * 0.3),
