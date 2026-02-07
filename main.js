@@ -1,4 +1,4 @@
-// main.js — Full interactive viewer with hotspots + mesh focus + deselect button
+// main.js — Full interactive viewer with anchored hotspot tooltips
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
@@ -94,8 +94,48 @@ const hotspotSystem = createHotspotSystem({
 });
 
 let hoveredHotspot = null;
+const DOT_SIZE = 0.02;
 const HOVER_SCALE_MULT = 1.25;
 const HOVER_LERP = 0.15;
+
+/* -------------------------------------------------- */
+/* HOTSPOT TOOLTIP (3D anchored) */
+/* -------------------------------------------------- */
+const hotspotTooltip = document.createElement("div");
+hotspotTooltip.style.cssText = `
+  position: fixed;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.5);
+  color: #000;
+  font: 12px system-ui, sans-serif;
+  pointer-events: none;
+  white-space: nowrap;
+  transform: translate(-50%, -120%);
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 10;
+`;
+document.body.appendChild(hotspotTooltip);
+
+function showHotspotTooltip(text) {
+  hotspotTooltip.textContent = text;
+  hotspotTooltip.style.opacity = "1";
+}
+function hideHotspotTooltip() {
+  hotspotTooltip.style.opacity = "0";
+}
+function updateHotspotTooltipPosition(hotspot) {
+  const worldPos = new THREE.Vector3();
+  hotspot.getWorldPosition(worldPos);
+  worldPos.project(camera);
+
+  const x = (worldPos.x * 0.5 + 0.5) * window.innerWidth;
+  const y = (-worldPos.y * 0.5 + 0.5) * window.innerHeight;
+
+  hotspotTooltip.style.left = `${x}px`;
+  hotspotTooltip.style.top = `${y}px`;
+}
 
 /* -------------------------------------------------- */
 /* MESH INTERACTION */
@@ -174,7 +214,6 @@ deselectBtn.onclick = () => {
   hoveredMesh = null;
   hideMeshName();
   hideDeselect();
-
   modelMeshes.forEach((m) => {
     m.userData.targetOpacity = m.userData.originalOpacity;
     m.material.color.copy(m.userData.originalColor);
@@ -207,22 +246,9 @@ function applyLook() {
 /* -------------------------------------------------- */
 function centerAndFrame(obj) {
   const box = new THREE.Box3().setFromObject(obj);
-  const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  if (!maxDim) return maxDim;
-
   pivot.position.set(-center.x, -center.y, -center.z);
-
-  const dist =
-    (maxDim / 2) /
-    Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) *
-    1.6;
-
-  camera.position.set(0, maxDim * 0.22, dist);
-  controls.target.set(0, 0, 0);
   controls.update();
-  return maxDim;
 }
 
 /* -------------------------------------------------- */
@@ -247,20 +273,19 @@ function loadObj(loader) {
     });
 
     requestAnimationFrame(() => {
-      const size = centerAndFrame(obj);
+      centerAndFrame(obj);
 
       hotspotSystem.clearHotspots();
-      const BASE = size * 0.02;
 
-      hotspotSystem.addHotspot(
-        new THREE.Vector3(0, 0, size * 0.3),
+      const h = hotspotSystem.addHotspot(
+        new THREE.Vector3(0, 0, 0.3),
         { label: "Feature" }
       );
 
-      hotspotSystem.hotspots.forEach((h) => {
-        h.userData.baseScale = BASE;
-        h.userData.targetScale = BASE;
-        h.scale.setScalar(BASE);
+      hotspotSystem.hotspots.forEach((dot) => {
+        dot.userData.baseScale = DOT_SIZE;
+        dot.userData.targetScale = DOT_SIZE;
+        dot.scale.setScalar(DOT_SIZE);
       });
 
       createUI({ params, applyLook, refit: () => centerAndFrame(obj) });
@@ -283,48 +308,51 @@ if (MTL_FILE) {
 /* POINTER MOVE */
 /* -------------------------------------------------- */
 renderer.domElement.addEventListener("pointermove", (e) => {
-  // --- Hotspots ---
   const hitHotspot = hotspotSystem.onPointerMove(e);
   if (hitHotspot !== hoveredHotspot) {
-    if (hoveredHotspot)
+    if (hoveredHotspot) {
       hoveredHotspot.userData.targetScale =
         hoveredHotspot.userData.baseScale;
-    if (hitHotspot)
+      hideHotspotTooltip();
+    }
+    if (hitHotspot) {
       hitHotspot.userData.targetScale =
         hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
+      showHotspotTooltip(hitHotspot.userData.label || "");
+    }
     hoveredHotspot = hitHotspot;
   }
 
-  if (lockedMesh) return;
+  if (!lockedMesh) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    meshRaycaster.setFromCamera(mouseNDC, camera);
+    const hit =
+      meshRaycaster.intersectObjects(modelMeshes)[0]?.object || null;
 
-  // --- Mesh hover ---
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-  mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-  meshRaycaster.setFromCamera(mouseNDC, camera);
-  const hit = meshRaycaster.intersectObjects(modelMeshes)[0]?.object || null;
-
-  if (hit !== hoveredMesh) {
-    hoveredMesh = hit;
-
-    if (hit) {
-      showMeshName(hit.name || "Part");
-      showDeselect();
-      modelMeshes.forEach((m) => {
-        m.userData.targetOpacity =
-          m === hit ? m.userData.originalOpacity : DIM_OPACITY;
-        m.material.color.copy(
-          m.userData.originalColor.clone().multiplyScalar(m === hit ? 0.9 : 1)
-        );
-      });
-    } else {
-      hideMeshName();
-      hideDeselect();
-      modelMeshes.forEach((m) => {
-        m.userData.targetOpacity = m.userData.originalOpacity;
-        m.material.color.copy(m.userData.originalColor);
-      });
+    if (hit !== hoveredMesh) {
+      hoveredMesh = hit;
+      if (hit) {
+        showMeshName(hit.name || "Part");
+        showDeselect();
+        modelMeshes.forEach((m) => {
+          m.userData.targetOpacity =
+            m === hit ? m.userData.originalOpacity : DIM_OPACITY;
+          m.material.color.copy(
+            m.userData.originalColor
+              .clone()
+              .multiplyScalar(m === hit ? 0.9 : 1)
+          );
+        });
+      } else {
+        hideMeshName();
+        hideDeselect();
+        modelMeshes.forEach((m) => {
+          m.userData.targetOpacity = m.userData.originalOpacity;
+          m.material.color.copy(m.userData.originalColor);
+        });
+      }
     }
   }
 });
@@ -354,9 +382,16 @@ function animate() {
   });
 
   hotspotSystem.hotspots.forEach((h) => {
-    const base = h.userData.baseScale;
-    const target = h.userData.targetScale ?? base;
-    h.scale.setScalar(THREE.MathUtils.lerp(h.scale.x, target, HOVER_LERP));
+    h.scale.setScalar(
+      THREE.MathUtils.lerp(
+        h.scale.x,
+        h.userData.targetScale,
+        HOVER_LERP
+      )
+    );
+    if (h === hoveredHotspot) {
+      updateHotspotTooltipPosition(h);
+    }
   });
 
   controls.update();
