@@ -52,6 +52,11 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 container.appendChild(renderer.domElement);
 
+// Cursor helper
+function setCursor(type) {
+  renderer.domElement.style.cursor = type;
+}
+
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.enablePan = false;
@@ -179,6 +184,8 @@ deselectBtn.onclick = () => {
     m.userData.targetOpacity = m.userData.originalOpacity;
     m.material.color.copy(m.userData.originalColor);
   });
+
+  setCursor("default");
 };
 
 /* -------------------------------------------------- */
@@ -252,10 +259,9 @@ function loadObj(loader) {
       hotspotSystem.clearHotspots();
       const BASE = size * 0.06;
 
-      hotspotSystem.addHotspot(
-        new THREE.Vector3(0, 0, size * 0.3),
-        { label: "Feature" }
-      );
+      hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
+        label: "Feature",
+      });
 
       hotspotSystem.hotspots.forEach((h) => {
         h.userData.baseScale = BASE;
@@ -287,15 +293,18 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   const hitHotspot = hotspotSystem.onPointerMove(e);
   if (hitHotspot !== hoveredHotspot) {
     if (hoveredHotspot)
-      hoveredHotspot.userData.targetScale =
-        hoveredHotspot.userData.baseScale;
+      hoveredHotspot.userData.targetScale = hoveredHotspot.userData.baseScale;
     if (hitHotspot)
       hitHotspot.userData.targetScale =
         hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
     hoveredHotspot = hitHotspot;
   }
 
-  if (lockedMesh) return;
+  // If mesh is locked, still show pointer over hotspots
+  if (lockedMesh) {
+    setCursor(hitHotspot ? "pointer" : "default");
+    return;
+  }
 
   // --- Mesh hover ---
   const rect = renderer.domElement.getBoundingClientRect();
@@ -327,6 +336,14 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       });
     }
   }
+
+  // --- Cursor feedback (pointer over hotspot OR mesh) ---
+  setCursor(hitHotspot || hoveredMesh ? "pointer" : "default");
+});
+
+// Reset cursor when leaving canvas
+renderer.domElement.addEventListener("pointerleave", () => {
+  setCursor("default");
 });
 
 /* -------------------------------------------------- */
