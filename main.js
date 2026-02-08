@@ -1,4 +1,4 @@
-// main.js — Full interactive viewer with hotspots + mesh hover + tooltip (FIXED)
+// main.js — Full interactive viewer with hotspots + mesh focus + cursor + 3D tooltip
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
@@ -53,20 +53,19 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 container.appendChild(renderer.domElement);
 
+// Cursor helper
 function setCursor(type) {
   renderer.domElement.style.cursor = type;
 }
 
-const tooltip = createHotspotTooltip({ camera, renderer, params });
+// Tooltip system
+const tooltip = createHotspotTooltip({ camera, renderer });
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.enablePan = false;
 controls.dampingFactor = 0.08;
 
-/* -------------------------------------------------- */
-/* RESIZE */
-/* -------------------------------------------------- */
 function resize() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
@@ -121,6 +120,34 @@ const DIM_OPACITY = 0.85;
 const OPACITY_LERP = 0.12;
 
 /* -------------------------------------------------- */
+/* UI: Mesh label */
+/* -------------------------------------------------- */
+const meshLabel = document.createElement("div");
+meshLabel.style.cssText = `
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.65);
+  color: white;
+  font: 12px system-ui;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+`;
+document.body.appendChild(meshLabel);
+
+function showMeshName(name) {
+  meshLabel.textContent = name;
+  meshLabel.style.opacity = "1";
+}
+function hideMeshName() {
+  meshLabel.style.opacity = "0";
+}
+
+/* -------------------------------------------------- */
 /* LOOK */
 /* -------------------------------------------------- */
 function applyLook() {
@@ -149,7 +176,7 @@ function centerAndFrame(obj) {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  if (!maxDim) return;
+  if (!maxDim) return maxDim;
 
   pivot.position.set(-center.x, -center.y, -center.z);
 
@@ -161,6 +188,7 @@ function centerAndFrame(obj) {
   camera.position.set(0, maxDim * 0.22, dist);
   controls.target.set(0, 0, 0);
   controls.update();
+  return maxDim;
 }
 
 /* -------------------------------------------------- */
@@ -185,18 +213,14 @@ function loadObj(loader) {
     });
 
     requestAnimationFrame(() => {
-      const box = new THREE.Box3().setFromObject(obj);
-      const size = box.getSize(new THREE.Vector3()).length();
-
-      centerAndFrame(obj);
+      const size = centerAndFrame(obj);
 
       hotspotSystem.clearHotspots();
       const BASE = size * 0.02;
 
       hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
         label: "Feature",
-        pinRadius: size * 0.0012,
-        pinLength: size * 0.03,
+        pinRadius: size * 0.0025,
       });
 
       hotspotSystem.hotspots.forEach((h) => {
@@ -222,7 +246,7 @@ if (MTL_FILE) {
 }
 
 /* -------------------------------------------------- */
-/* POINTER MOVE — FIXED */
+/* POINTER MOVE — NO EARLY RETURNS */
 /* -------------------------------------------------- */
 renderer.domElement.addEventListener("pointermove", (e) => {
   let cursor = "default";
@@ -246,7 +270,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     hoveredHotspot = hitHotspot;
   }
 
-  /* ---------- MESH HOVER (ALWAYS RUN) ---------- */
+  /* ---------- MESH HOVER ---------- */
   const rect = renderer.domElement.getBoundingClientRect();
   mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -259,11 +283,11 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     hoveredMesh = hitMesh;
 
     if (hitMesh) {
-      cursor = "pointer";
+      showMeshName(hitMesh.name || "Part");
+
       modelMeshes.forEach((m) => {
         m.userData.targetOpacity =
           m === hitMesh ? m.userData.originalOpacity : DIM_OPACITY;
-
         m.material.color.copy(
           m.userData.originalColor
             .clone()
@@ -271,6 +295,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         );
       });
     } else {
+      hideMeshName();
       modelMeshes.forEach((m) => {
         m.userData.targetOpacity = m.userData.originalOpacity;
         m.material.color.copy(m.userData.originalColor);
@@ -282,8 +307,13 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   setCursor(cursor);
 });
 
+renderer.domElement.addEventListener("pointerleave", () => {
+  setCursor("default");
+  if (!tooltip.isLocked()) tooltip.hide();
+});
+
 /* -------------------------------------------------- */
-/* CLICK TO LOCK TOOLTIP */
+/* CLICK — TOOLTIP LOCK */
 /* -------------------------------------------------- */
 renderer.domElement.addEventListener("pointerdown", (e) => {
   const hitHotspot = hotspotSystem.onPointerDown(e);
@@ -311,6 +341,7 @@ function animate() {
   });
 
   tooltip.update();
+
   controls.update();
   renderer.render(scene, camera);
 }
