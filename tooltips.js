@@ -27,7 +27,7 @@ export function createHotspotTooltip({ camera, renderer }) {
     hotspot = h;
     el.textContent = text;
     el.style.opacity = "1";
-    update();
+    update(); // position immediately
   }
 
   function hide() {
@@ -42,8 +42,11 @@ export function createHotspotTooltip({ camera, renderer }) {
     v.project(camera);
 
     const rect = renderer.domElement.getBoundingClientRect();
-    el.style.left = `${rect.left + (v.x * 0.5 + 0.5) * rect.width}px`;
-    el.style.top  = `${rect.top  + (-v.y * 0.5 + 0.5) * rect.height}px`;
+    const x = rect.left + (v.x * 0.5 + 0.5) * rect.width;
+    const y = rect.top + (-v.y * 0.5 + 0.5) * rect.height;
+
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
   }
 
   return { show, hide, update };
