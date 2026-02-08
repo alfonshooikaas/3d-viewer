@@ -1,4 +1,4 @@
-// main.js — Full interactive viewer with hotspots + mesh focus + deselect button + cursor + 3D tooltip
+// main.js — Full interactive viewer with hotspots + mesh focus + cursor + 3D tooltip
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
@@ -58,8 +58,8 @@ function setCursor(type) {
   renderer.domElement.style.cursor = type;
 }
 
-// ✅ Tooltip system (isolated)
-const hotspotTooltip = createHotspotTooltip({ camera, renderer });
+// Tooltip system (HTML, anchored to 3D)
+const tooltip = createHotspotTooltip({ camera, renderer });
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -118,79 +118,6 @@ const mouseNDC = new THREE.Vector2();
 
 const DIM_OPACITY = 0.85;
 const OPACITY_LERP = 0.12;
-
-/* -------------------------------------------------- */
-/* UI: Mesh label */
-/* -------------------------------------------------- */
-const meshLabel = document.createElement("div");
-meshLabel.style.cssText = `
-  position: fixed;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(0,0,0,.65);
-  color: white;
-  font: 12px system-ui;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .2s ease;
-`;
-document.body.appendChild(meshLabel);
-
-function showMeshName(name) {
-  meshLabel.textContent = name;
-  meshLabel.style.opacity = "1";
-}
-function hideMeshName() {
-  meshLabel.style.opacity = "0";
-}
-
-/* -------------------------------------------------- */
-/* UI: Deselect button */
-/* -------------------------------------------------- */
-const deselectBtn = document.createElement("button");
-deselectBtn.textContent = "Deselect";
-deselectBtn.style.cssText = `
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: none;
-  background: #111;
-  color: white;
-  font: 13px system-ui;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .2s ease;
-`;
-document.body.appendChild(deselectBtn);
-
-function showDeselect() {
-  deselectBtn.style.opacity = "1";
-  deselectBtn.style.pointerEvents = "auto";
-}
-function hideDeselect() {
-  deselectBtn.style.opacity = "0";
-  deselectBtn.style.pointerEvents = "none";
-}
-
-deselectBtn.onclick = () => {
-  lockedMesh = null;
-  hoveredMesh = null;
-  hideMeshName();
-  hideDeselect();
-
-  modelMeshes.forEach((m) => {
-    m.userData.targetOpacity = m.userData.originalOpacity;
-    m.material.color.copy(m.userData.originalColor);
-  });
-
-  setCursor("default");
-};
 
 /* -------------------------------------------------- */
 /* LOOK */
@@ -298,74 +225,50 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   // --- Hotspots ---
   const hitHotspot = hotspotSystem.onPointerMove(e);
 
+  if (!tooltip.isLocked()) {
+    if (hitHotspot) tooltip.show(hitHotspot);
+    else tooltip.hide();
+  }
+
   if (hitHotspot !== hoveredHotspot) {
-    if (hoveredHotspot) {
-      hoveredHotspot.userData.targetScale = hoveredHotspot.userData.baseScale;
-      hotspotTooltip.hide();
-    }
-    if (hitHotspot) {
+    if (hoveredHotspot)
+      hoveredHotspot.userData.targetScale =
+        hoveredHotspot.userData.baseScale;
+
+    if (hitHotspot)
       hitHotspot.userData.targetScale =
         hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
-      hotspotTooltip.show(hitHotspot, hitHotspot.userData.label || "");
-    }
+
     hoveredHotspot = hitHotspot;
   }
 
-  // If mesh is locked, still show pointer + tooltip over hotspots
+  // --- Mesh hover (disabled when locked) ---
   if (lockedMesh) {
     setCursor(hitHotspot ? "pointer" : "default");
     return;
   }
 
-  // --- Mesh hover ---
   const rect = renderer.domElement.getBoundingClientRect();
   mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
   meshRaycaster.setFromCamera(mouseNDC, camera);
-  const hit = meshRaycaster.intersectObjects(modelMeshes)[0]?.object || null;
+  hoveredMesh = meshRaycaster.intersectObjects(modelMeshes)[0]?.object || null;
 
-  if (hit !== hoveredMesh) {
-    hoveredMesh = hit;
-
-    if (hit) {
-      showMeshName(hit.name || "Part");
-      showDeselect();
-      modelMeshes.forEach((m) => {
-        m.userData.targetOpacity =
-          m === hit ? m.userData.originalOpacity : DIM_OPACITY;
-        m.material.color.copy(
-          m.userData.originalColor.clone().multiplyScalar(m === hit ? 0.9 : 1)
-        );
-      });
-    } else {
-      hideMeshName();
-      hideDeselect();
-      modelMeshes.forEach((m) => {
-        m.userData.targetOpacity = m.userData.originalOpacity;
-        m.material.color.copy(m.userData.originalColor);
-      });
-    }
-  }
-
-  // --- Cursor feedback (pointer over hotspot OR mesh) ---
   setCursor(hitHotspot || hoveredMesh ? "pointer" : "default");
 });
 
-// Reset cursor + tooltip when leaving canvas
 renderer.domElement.addEventListener("pointerleave", () => {
   setCursor("default");
-  hotspotTooltip.hide();
+  if (!tooltip.isLocked()) tooltip.hide();
 });
 
 /* -------------------------------------------------- */
-/* CLICK TO LOCK */
+/* CLICK TO LOCK TOOLTIP */
 /* -------------------------------------------------- */
-renderer.domElement.addEventListener("pointerdown", () => {
-  if (hoveredMesh) {
-    lockedMesh = hoveredMesh;
-    showDeselect();
-  }
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  const hitHotspot = hotspotSystem.onPointerDown(e);
+  if (hitHotspot) tooltip.lock(hitHotspot);
 });
 
 /* -------------------------------------------------- */
@@ -388,7 +291,7 @@ function animate() {
     h.scale.setScalar(THREE.MathUtils.lerp(h.scale.x, target, HOVER_LERP));
   });
 
-  hotspotTooltip.update();
+  tooltip.update();
 
   controls.update();
   renderer.render(scene, camera);
