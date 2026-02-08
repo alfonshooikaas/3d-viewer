@@ -1,4 +1,4 @@
-// main.js — Full interactive viewer with hotspots + mesh focus + cursor + 3D tooltip
+// main.js — Full interactive viewer with hotspots + mesh hover + tooltip (FIXED)
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
@@ -16,44 +16,25 @@ const OBJ_FILE = "model.obj";
 const MTL_FILE = "model.mtl";
 
 /* -------------------------------------------------- */
-/* PARAMETERS (extended – driven by UI) */
+/* PARAMETERS */
 /* -------------------------------------------------- */
 export const params = {
-  // scene
   background: "#FFE8E8",
   toneMapping: "ACES",
   exposure: 1.45,
 
-  // lighting
   ambientColor: "#FFE8E8",
   ambientIntensity: 1.75,
+
   hemiSky: "#FFFFFF",
   hemiGround: "#FFE8E8",
   hemiIntensity: 0.8,
+
   keyColor: "#FFFFFF",
   keyIntensity: 1.25,
   keyPosX: 1.2,
   keyPosY: 2.0,
   keyPosZ: 1.4,
-
-  // hotspots
-  hotspotDotSize: 1.0,
-  hotspotDotOpacity: 1.0,
-  hotspotDotColor: "#E1FF00",
-  hotspotPinRadius: 1.0,
-  hotspotPinLength: 1.0,
-  hotspotHoverScale: 1.25,
-
-  // tooltip
-  tooltipOpacity: 0.85,
-  tooltipBlur: 16,
-  tooltipRadius: 14,
-  tooltipTextColor: "#000000",
-
-  // mesh hover
-  meshDimOpacity: 0.85,
-  meshHoverDarken: 0.9,
-  meshOpacityLerp: 0.12,
 };
 
 /* -------------------------------------------------- */
@@ -76,7 +57,6 @@ function setCursor(type) {
   renderer.domElement.style.cursor = type;
 }
 
-// Tooltip (HTML, anchored to 3D)
 const tooltip = createHotspotTooltip({ camera, renderer, params });
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -84,6 +64,9 @@ controls.enableDamping = true;
 controls.enablePan = false;
 controls.dampingFactor = 0.08;
 
+/* -------------------------------------------------- */
+/* RESIZE */
+/* -------------------------------------------------- */
 function resize() {
   const w = container.clientWidth || window.innerWidth;
   const h = container.clientHeight || window.innerHeight;
@@ -121,6 +104,7 @@ const hotspotSystem = createHotspotSystem({
 });
 
 let hoveredHotspot = null;
+const HOVER_SCALE_MULT = 1.25;
 const HOVER_LERP = 0.15;
 
 /* -------------------------------------------------- */
@@ -133,12 +117,14 @@ let lockedMesh = null;
 const meshRaycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2();
 
+const DIM_OPACITY = 0.85;
+const OPACITY_LERP = 0.12;
+
 /* -------------------------------------------------- */
 /* LOOK */
 /* -------------------------------------------------- */
 function applyLook() {
   scene.background = new THREE.Color(params.background);
-
   renderer.toneMapping =
     params.toneMapping === "ACES"
       ? THREE.ACESFilmicToneMapping
@@ -147,11 +133,9 @@ function applyLook() {
 
   ambient.color.set(params.ambientColor);
   ambient.intensity = params.ambientIntensity;
-
   hemi.color.set(params.hemiSky);
   hemi.groundColor.set(params.hemiGround);
   hemi.intensity = params.hemiIntensity;
-
   key.color.set(params.keyColor);
   key.intensity = params.keyIntensity;
   key.position.set(params.keyPosX, params.keyPosY, params.keyPosZ);
@@ -165,7 +149,7 @@ function centerAndFrame(obj) {
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  if (!maxDim) return maxDim;
+  if (!maxDim) return;
 
   pivot.position.set(-center.x, -center.y, -center.z);
 
@@ -177,7 +161,6 @@ function centerAndFrame(obj) {
   camera.position.set(0, maxDim * 0.22, dist);
   controls.target.set(0, 0, 0);
   controls.update();
-  return maxDim;
 }
 
 /* -------------------------------------------------- */
@@ -202,18 +185,18 @@ function loadObj(loader) {
     });
 
     requestAnimationFrame(() => {
-      const size = centerAndFrame(obj);
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = box.getSize(new THREE.Vector3()).length();
+
+      centerAndFrame(obj);
 
       hotspotSystem.clearHotspots();
-
-      const BASE = size * 0.02 * params.hotspotDotSize;
+      const BASE = size * 0.02;
 
       hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
         label: "Feature",
-        lineLength: size * 0.03 * params.hotspotPinLength,
-        pinRadius: size * 0.001 * params.hotspotPinRadius,
-        color: params.hotspotDotColor,
-        opacity: params.hotspotDotOpacity,
+        pinRadius: size * 0.0012,
+        pinLength: size * 0.03,
       });
 
       hotspotSystem.hotspots.forEach((h) => {
@@ -239,9 +222,12 @@ if (MTL_FILE) {
 }
 
 /* -------------------------------------------------- */
-/* POINTER MOVE */
+/* POINTER MOVE — FIXED */
 /* -------------------------------------------------- */
 renderer.domElement.addEventListener("pointermove", (e) => {
+  let cursor = "default";
+
+  /* ---------- HOTSPOTS ---------- */
   const hitHotspot = hotspotSystem.onPointerMove(e);
 
   if (!tooltip.isLocked()) {
@@ -255,29 +241,45 @@ renderer.domElement.addEventListener("pointermove", (e) => {
 
     if (hitHotspot)
       hitHotspot.userData.targetScale =
-        hitHotspot.userData.baseScale * params.hotspotHoverScale;
+        hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
 
     hoveredHotspot = hitHotspot;
   }
 
-  if (lockedMesh) {
-    setCursor(hitHotspot ? "pointer" : "default");
-    return;
-  }
-
+  /* ---------- MESH HOVER (ALWAYS RUN) ---------- */
   const rect = renderer.domElement.getBoundingClientRect();
   mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
   meshRaycaster.setFromCamera(mouseNDC, camera);
-  hoveredMesh = meshRaycaster.intersectObjects(modelMeshes)[0]?.object || null;
+  const hitMesh =
+    meshRaycaster.intersectObjects(modelMeshes, false)[0]?.object || null;
 
-  setCursor(hitHotspot || hoveredMesh ? "pointer" : "default");
-});
+  if (!lockedMesh && hitMesh !== hoveredMesh) {
+    hoveredMesh = hitMesh;
 
-renderer.domElement.addEventListener("pointerleave", () => {
-  setCursor("default");
-  if (!tooltip.isLocked()) tooltip.hide();
+    if (hitMesh) {
+      cursor = "pointer";
+      modelMeshes.forEach((m) => {
+        m.userData.targetOpacity =
+          m === hitMesh ? m.userData.originalOpacity : DIM_OPACITY;
+
+        m.material.color.copy(
+          m.userData.originalColor
+            .clone()
+            .multiplyScalar(m === hitMesh ? 0.9 : 1)
+        );
+      });
+    } else {
+      modelMeshes.forEach((m) => {
+        m.userData.targetOpacity = m.userData.originalOpacity;
+        m.material.color.copy(m.userData.originalColor);
+      });
+    }
+  }
+
+  if (hitHotspot || hoveredMesh) cursor = "pointer";
+  setCursor(cursor);
 });
 
 /* -------------------------------------------------- */
@@ -298,7 +300,7 @@ function animate() {
     m.material.opacity = THREE.MathUtils.lerp(
       m.material.opacity,
       m.userData.targetOpacity,
-      params.meshOpacityLerp
+      OPACITY_LERP
     );
   });
 
