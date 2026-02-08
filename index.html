@@ -8,10 +8,20 @@
     html, body { margin:0; height:100%; overflow:hidden; }
     #app { position:fixed; inset:0; }
     canvas { display:block; width:100%; height:100%; }
+    .top-right-logo {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    z-index: 100000; /* above canvas + UI */
+    pointer-events: auto; /* set to none if purely decorative */
+  }
   </style>
 </head>
 <body>
   <div id="app"></div>
+  <img src="./remedi.svg" alt="Remedi" class="top-right-logo"/>
   <script type="module" src="./main.js"></script>
 </body>
 </html>
