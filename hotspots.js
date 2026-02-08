@@ -1,43 +1,47 @@
 // hotspots.js — Pin-style hotspots (dot + thick pin toward model center)
+// Dot scale is controlled externally (main.js)
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 
 export function createHotspotSystem({ pivot, camera, domElement }) {
-  const hotspots = [];   // DOT meshes for raycasting
-  const groups = [];     // groups added to pivot
+  const hotspots = [];   // DOT meshes (for raycasting + hover)
+  const groups = [];     // Full pin groups added to pivot
+
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
 
-  // Visual defaults (tweak as desired)
-  const DOT_COLOR = 0xe1ff00;
-  const DOT_OPACITY = 1.0;
-
-  // Pin defaults (world/model units)
-  const DEFAULT_PIN_RADIUS = 0.004;  // thickness (increase for "fatter")
-  const DEFAULT_PIN_OPACITY = 1.0;
-
+  /* -------------------------------------------------- */
+  /* Pointer → NDC                                      */
+  /* -------------------------------------------------- */
   function pointerToNDC(event) {
     const rect = domElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   }
 
+  /* -------------------------------------------------- */
+  /* Clear                                              */
+  /* -------------------------------------------------- */
   function clearHotspots() {
-    groups.forEach((g) => pivot.remove(g));
+    groups.forEach(g => pivot.remove(g));
     groups.length = 0;
     hotspots.length = 0;
   }
 
+  /* -------------------------------------------------- */
+  /* Add hotspot                                        */
+  /* -------------------------------------------------- */
   /**
    * addHotspot(localPos, options)
-   * localPos: THREE.Vector3 in model-local coordinates
+   *
+   * localPos: THREE.Vector3 (model-local coordinates)
    *
    * options:
    *  - label: string
-   *  - pinToCenter: boolean (default true)  // if true, pin goes to (0,0,0)
-   *  - pinLength: number (optional)         // if provided, pin goes "toward center" by this length only
-   *  - pinRadius: number (default DEFAULT_PIN_RADIUS)
-   *  - pinColor: hex/string (default DOT_COLOR)
+   *  - pinToCenter: boolean (default true)
+   *  - pinLength: number (optional, world units)
+   *  - pinRadius: number (default 0.004)
+   *  - pinColor: hex/string (default #e1ff00)
    *  - pinOpacity: number 0..1 (default 1)
    */
   function addHotspot(localPos, options = {}) {
@@ -45,51 +49,44 @@ export function createHotspotSystem({ pivot, camera, domElement }) {
       label = "",
       pinToCenter = true,
       pinLength = null,
-      pinRadius = DEFAULT_PIN_RADIUS,
-      pinColor = DOT_COLOR,
-      pinOpacity = DEFAULT_PIN_OPACITY,
+      pinRadius = 0.004,
+      pinColor = "#e1ff00",
+      pinOpacity = 1.0,
     } = options;
 
+    /* ---------- Group ---------- */
     const group = new THREE.Group();
     group.position.copy(localPos);
 
-    // --- DOT ---
-    const dotGeom = new THREE.SphereGeometry(1, 20, 20); // scaled externally by main.js
-    const dotMat = new THREE.MeshBasicMaterial({
-      color: DOT_COLOR,
-      transparent: DOT_OPACITY < 1,
-      opacity: DOT_OPACITY,
-      depthTest: true,
-      depthWrite: true,
-    });
-    const dot = new THREE.Mesh(dotGeom, dotMat);
-    dot.name = "HotspotDot";
-    dot.userData.label = label;
-    dot.userData._isHotspotDot = true;
-
-    hotspots.push(dot);
-
-    // --- PIN (thick cylinder) ---
-    // Direction to model center: from hotspot (localPos) to origin (0,0,0)
-    // Since group is positioned at localPos, in GROUP-local space:
-    //  - hotspot is at (0,0,0)
-    //  - model center is at (-localPos)
+    /* ---------- Direction to model center ---------- */
+    // In group-local space, model center is (-localPos)
     const toCenter = pinToCenter
       ? localPos.clone().multiplyScalar(-1)
       : new THREE.Vector3(0, -1, 0);
 
-    // If hotspot happens to be at origin, fall back to a default direction
+    // Fallback if hotspot is at origin
     if (toCenter.lengthSq() < 1e-10) toCenter.set(0, -1, 0);
 
     const fullLen = toCenter.length();
-    const useLen = pinLength != null ? Math.min(Math.max(pinLength, 0), fullLen) : fullLen;
+    const useLen =
+      pinLength != null
+        ? Math.min(Math.max(pinLength, 0), fullLen)
+        : fullLen;
 
-    const dir = toCenter.clone().normalize(); // direction in group-local space
+    const dir = toCenter.clone().normalize();
 
-    // Cylinder is centered on its Y axis by default.
-    // We'll orient it so +Y aligns with dir, then shift it "into" the model.
-    const cylGeom = new THREE.CylinderGeometry(pinRadius, pinRadius, useLen, 16, 1, true);
-    const cylMat = new THREE.MeshBasicMaterial({
+    /* ---------- Pin (shaft) ---------- */
+    const shaftRadius = pinRadius * 2; // 🔑 thick pin (200%)
+    const shaftGeom = new THREE.CylinderGeometry(
+      shaftRadius,
+      shaftRadius,
+      useLen,
+      16,
+      1,
+      true
+    );
+
+    const shaftMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(pinColor),
       transparent: pinOpacity < 1,
       opacity: pinOpacity,
@@ -97,28 +94,48 @@ export function createHotspotSystem({ pivot, camera, domElement }) {
       depthWrite: true,
     });
 
-    const pin = new THREE.Mesh(cylGeom, cylMat);
+    const pin = new THREE.Mesh(shaftGeom, shaftMat);
     pin.name = "HotspotPin";
 
-    // Orient cylinder: default axis is +Y
-    const up = new THREE.Vector3(0, 1, 0);
-    pin.quaternion.setFromUnitVectors(up, dir);
+    // Orient cylinder (+Y → dir)
+    pin.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      dir
+    );
 
-    // Position the cylinder so it starts at dot center and goes inward.
-    // Since cylinder is centered, move it half-length along dir.
+    // Move so it starts at dot center and goes inward
     pin.position.copy(dir.clone().multiplyScalar(useLen / 2));
 
-    // Add to group
+    /* ---------- Dot (head) ---------- */
+    // Geometry is unit-sized; scale is applied externally
+    const dotGeom = new THREE.SphereGeometry(1, 20, 20);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(pinColor), // 🔑 unified color
+      transparent: pinOpacity < 1,
+      opacity: pinOpacity,
+      depthTest: true,
+      depthWrite: true,
+    });
+
+    const dot = new THREE.Mesh(dotGeom, dotMat);
+    dot.name = "HotspotDot";
+    dot.userData.label = label;
+    dot.userData._isHotspotDot = true;
+
+    /* ---------- Assemble ---------- */
     group.add(pin);
     group.add(dot);
-
     pivot.add(group);
+
     groups.push(group);
+    hotspots.push(dot);
 
     return dot;
   }
 
-  // Raycast hit test (returns DOT mesh or null)
+  /* -------------------------------------------------- */
+  /* Raycasting                                         */
+  /* -------------------------------------------------- */
   function pickHotspot(event) {
     pointerToNDC(event);
     raycaster.setFromCamera(mouse, camera);
@@ -136,8 +153,11 @@ export function createHotspotSystem({ pivot, camera, domElement }) {
     return hit;
   }
 
+  /* -------------------------------------------------- */
+  /* Public API                                         */
+  /* -------------------------------------------------- */
   return {
-    hotspots, // DOT meshes used by your main.js hover scaling
+    hotspots,        // DOT meshes (used by main.js for scaling)
     clearHotspots,
     addHotspot,
     onPointerMove,
