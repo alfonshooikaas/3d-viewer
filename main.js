@@ -107,7 +107,7 @@ let lockedMesh = null;
 const meshRaycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2();
 
-const DIM_OPACITY = 0.5;
+const DIM_OPACITY = 0.85;
 const OPACITY_LERP = 0.12;
 
 /* -------------------------------------------------- */
