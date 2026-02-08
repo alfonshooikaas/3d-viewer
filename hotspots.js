@@ -16,7 +16,7 @@ export function createHotspotSystem({ pivot, camera, domElement }) {
       roughness: 0.4,
       metalness: 0.0,
       transparent: true,
-      opacity: 0.75,
+      opacity: 1.00,
       depthTest: true,
       depthWrite: false,
     });
