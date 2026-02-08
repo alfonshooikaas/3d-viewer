@@ -265,6 +265,8 @@ function loadObj(loader) {
 
       hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
         label: "Feature",
+        lineLength: size * 0.03,
+        lineDirection: new THREE.Vector3(0, -1, 0), // goes downward in model space
       });
 
       hotspotSystem.hotspots.forEach((h) => {
