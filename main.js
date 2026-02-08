@@ -16,25 +16,44 @@ const OBJ_FILE = "model.obj";
 const MTL_FILE = "model.mtl";
 
 /* -------------------------------------------------- */
-/* PARAMETERS */
+/* PARAMETERS (extended – driven by UI) */
 /* -------------------------------------------------- */
 export const params = {
+  // scene
   background: "#FFE8E8",
   toneMapping: "ACES",
   exposure: 1.45,
 
+  // lighting
   ambientColor: "#FFE8E8",
   ambientIntensity: 1.75,
-
   hemiSky: "#FFFFFF",
   hemiGround: "#FFE8E8",
   hemiIntensity: 0.8,
-
   keyColor: "#FFFFFF",
   keyIntensity: 1.25,
   keyPosX: 1.2,
   keyPosY: 2.0,
   keyPosZ: 1.4,
+
+  // hotspots
+  hotspotDotSize: 1.0,
+  hotspotDotOpacity: 1.0,
+  hotspotDotColor: "#E1FF00",
+  hotspotPinRadius: 1.0,
+  hotspotPinLength: 1.0,
+  hotspotHoverScale: 1.25,
+
+  // tooltip
+  tooltipOpacity: 0.85,
+  tooltipBlur: 16,
+  tooltipRadius: 14,
+  tooltipTextColor: "#000000",
+
+  // mesh hover
+  meshDimOpacity: 0.85,
+  meshHoverDarken: 0.9,
+  meshOpacityLerp: 0.12,
 };
 
 /* -------------------------------------------------- */
@@ -53,13 +72,12 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 container.appendChild(renderer.domElement);
 
-// Cursor helper
 function setCursor(type) {
   renderer.domElement.style.cursor = type;
 }
 
-// Tooltip system (HTML, anchored to 3D)
-const tooltip = createHotspotTooltip({ camera, renderer });
+// Tooltip (HTML, anchored to 3D)
+const tooltip = createHotspotTooltip({ camera, renderer, params });
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -103,7 +121,6 @@ const hotspotSystem = createHotspotSystem({
 });
 
 let hoveredHotspot = null;
-const HOVER_SCALE_MULT = 1.25;
 const HOVER_LERP = 0.15;
 
 /* -------------------------------------------------- */
@@ -116,14 +133,12 @@ let lockedMesh = null;
 const meshRaycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2();
 
-const DIM_OPACITY = 0.85;
-const OPACITY_LERP = 0.12;
-
 /* -------------------------------------------------- */
 /* LOOK */
 /* -------------------------------------------------- */
 function applyLook() {
   scene.background = new THREE.Color(params.background);
+
   renderer.toneMapping =
     params.toneMapping === "ACES"
       ? THREE.ACESFilmicToneMapping
@@ -132,9 +147,11 @@ function applyLook() {
 
   ambient.color.set(params.ambientColor);
   ambient.intensity = params.ambientIntensity;
+
   hemi.color.set(params.hemiSky);
   hemi.groundColor.set(params.hemiGround);
   hemi.intensity = params.hemiIntensity;
+
   key.color.set(params.keyColor);
   key.intensity = params.keyIntensity;
   key.position.set(params.keyPosX, params.keyPosY, params.keyPosZ);
@@ -188,12 +205,15 @@ function loadObj(loader) {
       const size = centerAndFrame(obj);
 
       hotspotSystem.clearHotspots();
-      const BASE = size * 0.02;
+
+      const BASE = size * 0.02 * params.hotspotDotSize;
 
       hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
         label: "Feature",
-        lineLength: size * 0.03,
-        pinRadius: size * 0.0025,
+        lineLength: size * 0.03 * params.hotspotPinLength,
+        pinRadius: size * 0.0025 * params.hotspotPinRadius,
+        color: params.hotspotDotColor,
+        opacity: params.hotspotDotOpacity,
       });
 
       hotspotSystem.hotspots.forEach((h) => {
@@ -222,12 +242,10 @@ if (MTL_FILE) {
 /* POINTER MOVE */
 /* -------------------------------------------------- */
 renderer.domElement.addEventListener("pointermove", (e) => {
-  // --- Hotspots ---
   const hitHotspot = hotspotSystem.onPointerMove(e);
 
   if (!tooltip.isLocked()) {
-    if (hitHotspot) tooltip.show(hitHotspot);
-    else tooltip.hide();
+    hitHotspot ? tooltip.show(hitHotspot) : tooltip.hide();
   }
 
   if (hitHotspot !== hoveredHotspot) {
@@ -237,12 +255,11 @@ renderer.domElement.addEventListener("pointermove", (e) => {
 
     if (hitHotspot)
       hitHotspot.userData.targetScale =
-        hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
+        hitHotspot.userData.baseScale * params.hotspotHoverScale;
 
     hoveredHotspot = hitHotspot;
   }
 
-  // --- Mesh hover (disabled when locked) ---
   if (lockedMesh) {
     setCursor(hitHotspot ? "pointer" : "default");
     return;
@@ -281,7 +298,7 @@ function animate() {
     m.material.opacity = THREE.MathUtils.lerp(
       m.material.opacity,
       m.userData.targetOpacity,
-      OPACITY_LERP
+      params.meshOpacityLerp
     );
   });
 
@@ -292,7 +309,6 @@ function animate() {
   });
 
   tooltip.update();
-
   controls.update();
   renderer.render(scene, camera);
 }
