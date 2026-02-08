@@ -216,15 +216,31 @@ function loadObj(loader) {
       const size = centerAndFrame(obj);
 
       // -----------------------------
-      // HOTSPOTS: 5 random pins
+      // HOTSPOTS
       // -----------------------------
       hotspotSystem.clearHotspots();
 
-      const BASE = size * 0.01;          // dot scale
-      const PIN_COUNT = 5;               // ✅ number of random pins
-      const RADIUS = size * 0.45;        // where pins spawn around the model
+      const BASE = size * 0.01;
+      const PIN_COUNT = 5;
+      const RADIUS = size * 0.45;
 
-      for (let i = 0; i < PIN_COUNT; i++) {
+      // ---- Two forced TOP pins ----
+      const topDirs = [
+        new THREE.Vector3(0.15, 1, 0.05),
+        new THREE.Vector3(-0.15, 1, -0.05),
+      ];
+
+      topDirs.forEach((dir, i) => {
+        const pos = dir.normalize().multiplyScalar(RADIUS);
+        hotspotSystem.addHotspot(pos, {
+          label: `Top Feature ${i + 1}`,
+          pinToCenter: true,
+          pinRadius: size * 0.001,
+        });
+      });
+
+      // ---- Remaining random pins ----
+      for (let i = topDirs.length; i < PIN_COUNT; i++) {
         const dir = new THREE.Vector3(
           Math.random() * 2 - 1,
           Math.random() * 2 - 1,
@@ -232,17 +248,14 @@ function loadObj(loader) {
         ).normalize();
 
         const pos = dir.multiplyScalar(RADIUS);
-
         hotspotSystem.addHotspot(pos, {
           label: `Feature ${i + 1}`,
           pinToCenter: true,
-          pinRadius: size * 0.001,       // thickness
-          pinLength: size * 0.08,        // how far inward
-          pinOpacity: 1.0,
-          pinColor: "#e1ff00",
+          pinRadius: size * 0.001,
         });
       }
 
+      // ---- Dot scaling ----
       hotspotSystem.hotspots.forEach((h) => {
         h.userData.baseScale = BASE;
         h.userData.targetScale = BASE;
@@ -266,12 +279,11 @@ if (MTL_FILE) {
 }
 
 /* -------------------------------------------------- */
-/* POINTER MOVE — NO EARLY RETURNS */
+/* POINTER MOVE */
 /* -------------------------------------------------- */
 renderer.domElement.addEventListener("pointermove", (e) => {
   let cursor = "default";
 
-  /* ---------- HOTSPOTS ---------- */
   const hitHotspot = hotspotSystem.onPointerMove(e);
 
   if (!tooltip.isLocked()) {
@@ -290,7 +302,6 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     hoveredHotspot = hitHotspot;
   }
 
-  /* ---------- MESH HOVER ---------- */
   const rect = renderer.domElement.getBoundingClientRect();
   mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
   mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
