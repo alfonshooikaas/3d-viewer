@@ -7,6 +7,7 @@ import { MTLLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/MTL
 
 import { createUI } from "./ui.js";
 import { createHotspotSystem } from "./hotspots.js";
+import { createHotspotTooltip } from "./tooltips.js";
 
 /* -------------------------------------------------- */
 /* FILES */
