@@ -216,7 +216,7 @@ function loadObj(loader) {
       const size = centerAndFrame(obj);
 
       hotspotSystem.clearHotspots();
-      const BASE = size * 0.02;
+      const BASE = size * 0.01;
 
       hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
         label: "Feature",
