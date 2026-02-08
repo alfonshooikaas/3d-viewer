@@ -211,7 +211,7 @@ function loadObj(loader) {
       hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
         label: "Feature",
         lineLength: size * 0.03 * params.hotspotPinLength,
-        pinRadius: size * 0.0025 * params.hotspotPinRadius,
+        pinRadius: size * 0.001 * params.hotspotPinRadius,
         color: params.hotspotDotColor,
         opacity: params.hotspotDotOpacity,
       });
