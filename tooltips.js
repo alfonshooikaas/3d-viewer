@@ -1,39 +1,68 @@
-// tooltips.js — 3D-anchored glass tooltip with lock + links
+// tooltips.js — 3D-anchored glass tooltip (refined glassmorphism)
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 
 export function createHotspotTooltip({ camera, renderer, params }) {
-  /* ---------------- DOM ---------------- */
+  /* -------------------------------------------------- */
+  /* DOM                                                 */
+  /* -------------------------------------------------- */
 
   const el = document.createElement("div");
   el.className = "hotspot-tooltip";
   el.style.cssText = `
     position: fixed;
-    min-width: 200px;
-    padding: 12px 14px;
+    min-width: 220px;
+    padding: 14px 14px 12px;
     border-radius: ${params.tooltipRadius}px;
-    background: rgba(255,255,255,${params.tooltipOpacity});
+    background:
+      linear-gradient(
+        to bottom,
+        rgba(255,255,255,0.25),
+        rgba(255,255,255,0.0)
+      );
     backdrop-filter: blur(${params.tooltipBlur}px);
     -webkit-backdrop-filter: blur(${params.tooltipBlur}px);
     color: ${params.tooltipTextColor};
     font: 13px system-ui, -apple-system, BlinkMacSystemFont;
-    box-shadow: 0 12px 30px rgba(0,0,0,.18);
-    transform: translate(-50%, -110%);
+    box-shadow: 0 10px 26px rgba(0,0,0,0.06); /* ~30% of previous */
+    transform: translate(-50%, -115%);
     opacity: 0;
     pointer-events: none;
     transition: opacity 160ms ease;
     z-index: 100000;
   `;
 
+  // Gradient outline via pseudo-border
+  el.style.border = "1px solid transparent";
+  el.style.backgroundOrigin = "border-box";
+  el.style.backgroundClip = "padding-box, border-box";
+  el.style.backgroundImage = `
+    linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.25),
+      rgba(255,255,255,0.0)
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.25),
+      rgba(255,255,255,0.05),
+      rgba(255,255,255,0.25)
+    )
+  `;
+
   document.body.appendChild(el);
 
-  /* ---------------- State ---------------- */
+  /* -------------------------------------------------- */
+  /* State                                               */
+  /* -------------------------------------------------- */
 
   let hotspot = null;
   let locked = false;
   const worldPos = new THREE.Vector3();
 
-  /* ---------------- Content builder ---------------- */
+  /* -------------------------------------------------- */
+  /* Content                                             */
+  /* -------------------------------------------------- */
 
   function buildContent(data = {}) {
     const { label = "Info", links = [] } = data;
@@ -43,7 +72,7 @@ export function createHotspotTooltip({ camera, renderer, params }) {
         display:flex;
         align-items:center;
         justify-content:space-between;
-        margin-bottom:8px;
+        margin-bottom:10px;
         font-weight:600;
       ">
         <span>${label}</span>
@@ -53,7 +82,7 @@ export function createHotspotTooltip({ camera, renderer, params }) {
           cursor:pointer;
           font-size:14px;
           line-height:1;
-          opacity:.6;
+          opacity:.55;
         ">✕</button>
       </div>
 
@@ -66,18 +95,23 @@ export function createHotspotTooltip({ camera, renderer, params }) {
           .map(
             (l) => `
           <a href="${l.url}" target="_blank" rel="noopener"
+             class="tooltip-link"
              style="
                display:flex;
                align-items:center;
                gap:8px;
-               text-decoration:none;
-               color:inherit;
                padding:6px 8px;
                border-radius:8px;
-               background:rgba(255,255,255,.45);
+               text-decoration:none;
+               color:#1e6e4b;
+               background:rgba(255,255,255,0.35);
+               transition: background 120ms ease;
              ">
-            <img src="https://www.google.com/s2/favicons?domain=${l.url}&sz=32"
-                 width="16" height="16" />
+            <img
+              src="https://www.google.com/s2/favicons?domain=${l.url}&sz=32"
+              width="16"
+              height="16"
+            />
             <span>${l.label}</span>
           </a>
         `
@@ -86,10 +120,19 @@ export function createHotspotTooltip({ camera, renderer, params }) {
       </div>
     `;
 
+    // Hover color for links
+    el.querySelectorAll(".tooltip-link").forEach((a) => {
+      a.onmouseenter = () => (a.style.background = "#e1ff00");
+      a.onmouseleave = () =>
+        (a.style.background = "rgba(255,255,255,0.35)");
+    });
+
     el.querySelector(".tooltip-close").onclick = () => unlock();
   }
 
-  /* ---------------- Core API ---------------- */
+  /* -------------------------------------------------- */
+  /* API                                                 */
+  /* -------------------------------------------------- */
 
   function show(h) {
     if (locked && hotspot !== h) return;
@@ -109,7 +152,6 @@ export function createHotspotTooltip({ camera, renderer, params }) {
 
     el.style.opacity = "1";
     el.style.pointerEvents = locked ? "auto" : "none";
-
     update();
   }
 
@@ -150,24 +192,17 @@ export function createHotspotTooltip({ camera, renderer, params }) {
     el.style.top = `${y}px`;
   }
 
-  /* ---------------- Live style sync ---------------- */
-
   function syncStyle() {
-    el.style.background = `rgba(255,255,255,${params.tooltipOpacity})`;
-    el.style.backdropFilter = `blur(${params.tooltipBlur}px)`;
-    el.style.borderRadius = `${params.tooltipRadius}px`;
-    el.style.color = params.tooltipTextColor;
+    // reserved for future live updates via UI
   }
-
-  /* ---------------- Public API ---------------- */
 
   return {
     show,
     hide,
-    update,
     lock,
     unlock,
     isLocked,
+    update,
     syncStyle,
   };
 }
