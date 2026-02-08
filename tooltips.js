@@ -1,4 +1,4 @@
-// tooltips.js — 3D-anchored tooltip for hotspots (safe, isolated)
+// tooltips.js — minimal 3D-anchored tooltip (safe, isolated)
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 
@@ -20,33 +20,30 @@ export function createHotspotTooltip({ camera, renderer }) {
   `;
   document.body.appendChild(el);
 
-  let currentHotspot = null;
-  const worldPos = new THREE.Vector3();
+  let hotspot = null;
+  const v = new THREE.Vector3();
 
-  function show(hotspot, text = "") {
-    currentHotspot = hotspot;
+  function show(h, text = "") {
+    hotspot = h;
     el.textContent = text;
     el.style.opacity = "1";
-    update(); // immediate position
+    update();
   }
 
   function hide() {
-    currentHotspot = null;
+    hotspot = null;
     el.style.opacity = "0";
   }
 
   function update() {
-    if (!currentHotspot) return;
+    if (!hotspot) return;
 
-    currentHotspot.getWorldPosition(worldPos);
-    worldPos.project(camera);
+    hotspot.getWorldPosition(v);
+    v.project(camera);
 
     const rect = renderer.domElement.getBoundingClientRect();
-    const x = rect.left + (worldPos.x * 0.5 + 0.5) * rect.width;
-    const y = rect.top + (-worldPos.y * 0.5 + 0.5) * rect.height;
-
-    el.style.left = `${x}px`;
-    el.style.top = `${y}px`;
+    el.style.left = `${rect.left + (v.x * 0.5 + 0.5) * rect.width}px`;
+    el.style.top  = `${rect.top  + (-v.y * 0.5 + 0.5) * rect.height}px`;
   }
 
   return { show, hide, update };
