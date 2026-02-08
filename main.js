@@ -215,13 +215,33 @@ function loadObj(loader) {
     requestAnimationFrame(() => {
       const size = centerAndFrame(obj);
 
+      // -----------------------------
+      // HOTSPOTS: 5 random pins
+      // -----------------------------
       hotspotSystem.clearHotspots();
-      const BASE = size * 0.01;
 
-      hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
-        label: "Feature",
-        pinRadius: size * 0.001,
-      });
+      const BASE = size * 0.01;          // dot scale
+      const PIN_COUNT = 5;               // ✅ number of random pins
+      const RADIUS = size * 0.45;        // where pins spawn around the model
+
+      for (let i = 0; i < PIN_COUNT; i++) {
+        const dir = new THREE.Vector3(
+          Math.random() * 2 - 1,
+          Math.random() * 2 - 1,
+          Math.random() * 2 - 1
+        ).normalize();
+
+        const pos = dir.multiplyScalar(RADIUS);
+
+        hotspotSystem.addHotspot(pos, {
+          label: `Feature ${i + 1}`,
+          pinToCenter: true,
+          pinRadius: size * 0.001,       // thickness
+          pinLength: size * 0.08,        // how far inward
+          pinOpacity: 1.0,
+          pinColor: "#e1ff00",
+        });
+      }
 
       hotspotSystem.hotspots.forEach((h) => {
         h.userData.baseScale = BASE;
