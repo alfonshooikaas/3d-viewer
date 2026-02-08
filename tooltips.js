@@ -1,96 +1,173 @@
-// tooltips.js — Glassmorphism tooltip anchored to 3D hotspots (lockable)
+// tooltips.js — 3D-anchored glass tooltip with lock + links
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 
-export function createHotspotTooltip({ camera, renderer }) {
-  let activeHotspot = null;
-  let locked = false;
+export function createHotspotTooltip({ camera, renderer, params }) {
+  /* ---------------- DOM ---------------- */
 
   const el = document.createElement("div");
+  el.className = "hotspot-tooltip";
   el.style.cssText = `
     position: fixed;
-    min-width: 220px;
+    min-width: 200px;
     padding: 12px 14px;
-    border-radius: 14px;
-    background: rgba(255,255,255,0.45);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 10px 30px rgba(0,0,0,.15);
-    color: #111;
-    font: 13px system-ui;
-    transform: translate(-50%, -130%);
+    border-radius: ${params.tooltipRadius}px;
+    background: rgba(255,255,255,${params.tooltipOpacity});
+    backdrop-filter: blur(${params.tooltipBlur}px);
+    -webkit-backdrop-filter: blur(${params.tooltipBlur}px);
+    color: ${params.tooltipTextColor};
+    font: 13px system-ui, -apple-system, BlinkMacSystemFont;
+    box-shadow: 0 12px 30px rgba(0,0,0,.18);
+    transform: translate(-50%, -110%);
     opacity: 0;
-    transition: opacity 150ms ease;
-    pointer-events: auto;
-    z-index: 9999;
-  `;
-
-  el.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-      <strong>More information</strong>
-      <button id="tt-close" style="border:none;background:none;font-size:16px;cursor:pointer;">✕</button>
-    </div>
-    <ul style="list-style:none;padding:0;margin:0;display:grid;gap:6px">
-      ${link("Thuisarts", "https://www.thuisarts.nl")}
-      ${link("Thuisarts", "https://www.thuisarts.nl")}
-      ${link("Thuisarts", "https://www.thuisarts.nl")}
-    </ul>
+    pointer-events: none;
+    transition: opacity 160ms ease;
+    z-index: 100000;
   `;
 
   document.body.appendChild(el);
-  el.querySelector("#tt-close").onclick = () => {
-    locked = false;
-    hide();
-  };
 
-  const v = new THREE.Vector3();
+  /* ---------------- State ---------------- */
 
-  function link(name, url) {
-    const favicon = new URL("/favicon.ico", url).href;
-    return `
-      <li>
-        <a href="${url}" target="_blank" style="display:flex;gap:8px;align-items:center;text-decoration:none;color:#111;">
-          <img src="${favicon}" width="16" height="16" />
-          ${name}
-        </a>
-      </li>`;
+  let hotspot = null;
+  let locked = false;
+  const worldPos = new THREE.Vector3();
+
+  /* ---------------- Content builder ---------------- */
+
+  function buildContent(data = {}) {
+    const { label = "Info", links = [] } = data;
+
+    el.innerHTML = `
+      <div style="
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        margin-bottom:8px;
+        font-weight:600;
+      ">
+        <span>${label}</span>
+        <button class="tooltip-close" style="
+          border:none;
+          background:none;
+          cursor:pointer;
+          font-size:14px;
+          line-height:1;
+          opacity:.6;
+        ">✕</button>
+      </div>
+
+      <div class="tooltip-links" style="
+        display:flex;
+        flex-direction:column;
+        gap:6px;
+      ">
+        ${links
+          .map(
+            (l) => `
+          <a href="${l.url}" target="_blank" rel="noopener"
+             style="
+               display:flex;
+               align-items:center;
+               gap:8px;
+               text-decoration:none;
+               color:inherit;
+               padding:6px 8px;
+               border-radius:8px;
+               background:rgba(255,255,255,.45);
+             ">
+            <img src="https://www.google.com/s2/favicons?domain=${l.url}&sz=32"
+                 width="16" height="16" />
+            <span>${l.label}</span>
+          </a>
+        `
+          )
+          .join("")}
+      </div>
+    `;
+
+    el.querySelector(".tooltip-close").onclick = () => unlock();
   }
+
+  /* ---------------- Core API ---------------- */
 
   function show(h) {
-    if (locked) return;
-    activeHotspot = h;
-    el.style.opacity = "1";
-    update();
-  }
+    if (locked && hotspot !== h) return;
 
-  function lock(h) {
-    activeHotspot = h;
-    locked = true;
+    hotspot = h;
+
+    buildContent(
+      h.userData.tooltip || {
+        label: h.userData.label || "Feature",
+        links: [
+          { label: "Thuisarts", url: "https://www.thuisarts.nl" },
+          { label: "Thuisarts", url: "https://www.thuisarts.nl" },
+          { label: "Thuisarts", url: "https://www.thuisarts.nl" },
+        ],
+      }
+    );
+
     el.style.opacity = "1";
+    el.style.pointerEvents = locked ? "auto" : "none";
+
     update();
   }
 
   function hide() {
     if (locked) return;
-    activeHotspot = null;
+    hotspot = null;
     el.style.opacity = "0";
+    el.style.pointerEvents = "none";
+  }
+
+  function lock(h) {
+    hotspot = h;
+    locked = true;
+    show(h);
+    el.style.pointerEvents = "auto";
+  }
+
+  function unlock() {
+    locked = false;
+    hide();
+  }
+
+  function isLocked() {
+    return locked;
   }
 
   function update() {
-    if (!activeHotspot) return;
+    if (!hotspot) return;
 
-    activeHotspot.getWorldPosition(v);
-    v.project(camera);
-
-    if (v.z < 0 || v.z > 1) {
-      el.style.opacity = "0";
-      return;
-    }
+    hotspot.getWorldPosition(worldPos);
+    worldPos.project(camera);
 
     const rect = renderer.domElement.getBoundingClientRect();
-    el.style.left = `${rect.left + (v.x * 0.5 + 0.5) * rect.width}px`;
-    el.style.top = `${rect.top + (-v.y * 0.5 + 0.5) * rect.height}px`;
+    const x = rect.left + (worldPos.x * 0.5 + 0.5) * rect.width;
+    const y = rect.top + (-worldPos.y * 0.5 + 0.5) * rect.height;
+
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
   }
 
-  return { show, hide, lock, update, isLocked: () => locked };
+  /* ---------------- Live style sync ---------------- */
+
+  function syncStyle() {
+    el.style.background = `rgba(255,255,255,${params.tooltipOpacity})`;
+    el.style.backdropFilter = `blur(${params.tooltipBlur}px)`;
+    el.style.borderRadius = `${params.tooltipRadius}px`;
+    el.style.color = params.tooltipTextColor;
+  }
+
+  /* ---------------- Public API ---------------- */
+
+  return {
+    show,
+    hide,
+    update,
+    lock,
+    unlock,
+    isLocked,
+    syncStyle,
+  };
 }
