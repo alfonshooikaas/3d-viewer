@@ -266,7 +266,7 @@ function loadObj(loader) {
       hotspotSystem.addHotspot(new THREE.Vector3(0, 0, size * 0.3), {
         label: "Feature",
         lineLength: size * 0.03,
-        pinRadius: size * 0.005,
+        pinRadius: size * 0.0025,
       });
 
       hotspotSystem.hotspots.forEach((h) => {
