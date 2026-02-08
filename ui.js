@@ -1,9 +1,10 @@
-// ui.js
+// ui.js — Extended, sectioned, collapsible viewer UI
+
 export function createUI({ params, applyLook, refit }) {
   injectStyles();
 
   const panel = document.createElement("div");
-  panel.className = "ui-panel";
+  panel.className = "ui-panel ui-collapsed";
   document.body.appendChild(panel);
 
   /* ---------- Header ---------- */
@@ -16,7 +17,7 @@ export function createUI({ params, applyLook, refit }) {
 
   const toggle = document.createElement("button");
   toggle.className = "ui-toggle";
-  toggle.textContent = "▾";
+  toggle.textContent = "▸";
 
   header.append(title, toggle);
   panel.appendChild(header);
@@ -26,16 +27,38 @@ export function createUI({ params, applyLook, refit }) {
   body.className = "ui-body";
   panel.appendChild(body);
 
-  let collapsed = false;
+  let collapsed = true;
   toggle.onclick = () => {
     collapsed = !collapsed;
     panel.classList.toggle("ui-collapsed", collapsed);
     toggle.textContent = collapsed ? "▸" : "▾";
   };
 
-  /* ---------- UI helpers ---------- */
+  /* ---------- Helpers ---------- */
 
-  function row(label) {
+  function section(titleText) {
+    const s = document.createElement("div");
+    s.className = "ui-section";
+
+    const h = document.createElement("div");
+    h.className = "ui-section-header";
+    h.textContent = titleText;
+
+    const c = document.createElement("div");
+    c.className = "ui-section-content";
+
+    let open = false;
+    h.onclick = () => {
+      open = !open;
+      s.classList.toggle("open", open);
+    };
+
+    s.append(h, c);
+    body.appendChild(s);
+    return c;
+  }
+
+  function row(parent, label) {
     const r = document.createElement("div");
     r.className = "ui-row";
 
@@ -47,32 +70,33 @@ export function createUI({ params, applyLook, refit }) {
     v.className = "ui-value";
 
     r.append(l, v);
-    body.appendChild(r);
+    parent.appendChild(r);
     return v;
   }
 
-  function slider(label, value, min, max, step, onChange) {
-    const v = row(label);
+  function slider(parent, label, key, min, max, step = 0.01) {
+    const v = row(parent, label);
 
     const range = document.createElement("input");
     range.type = "range";
     range.min = min;
     range.max = max;
     range.step = step;
-    range.value = value;
+    range.value = params[key];
 
     const num = document.createElement("input");
     num.type = "number";
     num.min = min;
     num.max = max;
     num.step = step;
-    num.value = value;
+    num.value = params[key];
 
     function sync(val) {
       const x = clamp(Number(val), min, max);
       range.value = x;
       num.value = x;
-      onChange(x);
+      params[key] = x;
+      applyLook();
     }
 
     range.oninput = () => sync(range.value);
@@ -81,51 +105,61 @@ export function createUI({ params, applyLook, refit }) {
     v.append(range, num);
   }
 
-  function color(label, value, onChange) {
-    const v = row(label);
+  function color(parent, label, key) {
+    const v = row(parent, label);
     const c = document.createElement("input");
     c.type = "color";
-    c.value = value;
-    c.oninput = () => onChange(c.value);
+    c.value = params[key];
+    c.oninput = () => {
+      params[key] = c.value;
+      applyLook();
+    };
     v.appendChild(c);
   }
 
-  function button(label, fn) {
-    const v = row("");
+  function button(parent, label, fn) {
+    const v = row(parent, "");
     const b = document.createElement("button");
     b.textContent = label;
     b.onclick = fn;
     v.appendChild(b);
   }
 
-  /* ---------- Controls ---------- */
+  /* ---------- Sections ---------- */
 
-  slider("Exposure", params.exposure, 0.6, 2.0, 0.01, v => {
-    params.exposure = v;
-    applyLook();
-  });
+  // Lighting
+  const lighting = section("Lighting");
+  slider(lighting, "Exposure", "exposure", 0.6, 2.0);
+  slider(lighting, "Ambient", "ambientIntensity", 0, 2);
+  slider(lighting, "Hemisphere", "hemiIntensity", 0, 2);
+  slider(lighting, "Key light", "keyIntensity", 0, 2);
+  color(lighting, "Background", "background");
 
-  slider("Ambient", params.ambientIntensity, 0, 2, 0.01, v => {
-    params.ambientIntensity = v;
-    applyLook();
-  });
+  // Hotspots
+  const hs = section("Hotspots / Pins");
+  slider(hs, "Dot size", "hotspotDotSize", 0.2, 3);
+  slider(hs, "Dot opacity", "hotspotDotOpacity", 0, 1);
+  color(hs, "Dot color", "hotspotDotColor");
+  slider(hs, "Pin thickness", "hotspotPinRadius", 0.2, 3);
+  slider(hs, "Pin length", "hotspotPinLength", 0.2, 3);
+  slider(hs, "Hover scale", "hotspotHoverScale", 1, 2);
 
-  slider("Hemisphere", params.hemiIntensity, 0, 2, 0.01, v => {
-    params.hemiIntensity = v;
-    applyLook();
-  });
+  // Tooltip
+  const tt = section("Tooltip");
+  slider(tt, "Opacity", "tooltipOpacity", 0.1, 1);
+  slider(tt, "Blur", "tooltipBlur", 0, 30, 1);
+  slider(tt, "Radius", "tooltipRadius", 4, 24, 1);
+  color(tt, "Text color", "tooltipTextColor");
 
-  slider("Key Light", params.keyIntensity, 0, 2, 0.01, v => {
-    params.keyIntensity = v;
-    applyLook();
-  });
+  // Mesh hover
+  const mh = section("Mesh hover");
+  slider(mh, "Dim opacity", "meshDimOpacity", 0, 1);
+  slider(mh, "Hover darken", "meshHoverDarken", 0.5, 1);
+  slider(mh, "Fade speed", "meshOpacityLerp", 0.05, 0.3);
 
-  color("Background", params.background, v => {
-    params.background = v;
-    applyLook();
-  });
-
-  button("Refit (F)", refit);
+  // Utilities
+  const util = section("Utilities");
+  button(util, "Refit model", refit);
 }
 
 /* ================== STYLES ================== */
@@ -156,9 +190,7 @@ function injectStyles() {
       padding:10px;
       font-weight:600;
       border-bottom:1px solid rgba(0,0,0,0.08);
-    }
-    .ui-title{
-      pointer-events:none;
+      cursor:pointer;
     }
     .ui-toggle{
       border:none;
@@ -174,6 +206,23 @@ function injectStyles() {
     }
     .ui-collapsed .ui-body{
       display:none;
+    }
+    .ui-section{
+      border-top:1px solid rgba(0,0,0,0.08);
+      padding-top:6px;
+    }
+    .ui-section-header{
+      font-weight:600;
+      cursor:pointer;
+      margin-bottom:6px;
+    }
+    .ui-section-content{
+      display:none;
+      flex-direction:column;
+      gap:6px;
+    }
+    .ui-section.open .ui-section-content{
+      display:flex;
     }
     .ui-row{
       display:flex;
