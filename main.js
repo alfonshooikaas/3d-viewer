@@ -1,4 +1,4 @@
-// main.js — Full interactive viewer with hotspots + mesh focus + deselect button
+// main.js — Full interactive viewer with hotspots + mesh focus + deselect button + cursor + 3D tooltip
 
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { OrbitControls } from "https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js";
@@ -57,6 +57,9 @@ container.appendChild(renderer.domElement);
 function setCursor(type) {
   renderer.domElement.style.cursor = type;
 }
+
+// ✅ Tooltip system (isolated)
+const hotspotTooltip = createHotspotTooltip({ camera, renderer });
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -292,16 +295,21 @@ if (MTL_FILE) {
 renderer.domElement.addEventListener("pointermove", (e) => {
   // --- Hotspots ---
   const hitHotspot = hotspotSystem.onPointerMove(e);
+
   if (hitHotspot !== hoveredHotspot) {
-    if (hoveredHotspot)
+    if (hoveredHotspot) {
       hoveredHotspot.userData.targetScale = hoveredHotspot.userData.baseScale;
-    if (hitHotspot)
+      hotspotTooltip.hide();
+    }
+    if (hitHotspot) {
       hitHotspot.userData.targetScale =
         hitHotspot.userData.baseScale * HOVER_SCALE_MULT;
+      hotspotTooltip.show(hitHotspot, hitHotspot.userData.label || "");
+    }
     hoveredHotspot = hitHotspot;
   }
 
-  // If mesh is locked, still show pointer over hotspots
+  // If mesh is locked, still show pointer + tooltip over hotspots
   if (lockedMesh) {
     setCursor(hitHotspot ? "pointer" : "default");
     return;
@@ -342,9 +350,10 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   setCursor(hitHotspot || hoveredMesh ? "pointer" : "default");
 });
 
-// Reset cursor when leaving canvas
+// Reset cursor + tooltip when leaving canvas
 renderer.domElement.addEventListener("pointerleave", () => {
   setCursor("default");
+  hotspotTooltip.hide();
 });
 
 /* -------------------------------------------------- */
@@ -376,6 +385,8 @@ function animate() {
     const target = h.userData.targetScale ?? base;
     h.scale.setScalar(THREE.MathUtils.lerp(h.scale.x, target, HOVER_LERP));
   });
+
+  hotspotTooltip.update();
 
   controls.update();
   renderer.render(scene, camera);
